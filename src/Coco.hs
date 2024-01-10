@@ -68,8 +68,8 @@ data CocoImage = CocoImage
   , cocoImageWidth    :: Int
   , cocoImageHeight   :: Int
   , cocoImageFileName :: Text
-  , cocoImageLicense  :: Int
-  , cocoImageDateCoco :: Text
+  , cocoImageLicense  :: Maybe Int
+  , cocoImageDateCoco :: Maybe Text
   } deriving (Show, Eq, Generic)
 
 instance FromJSON CocoImage where
@@ -78,8 +78,8 @@ instance FromJSON CocoImage where
     cocoImageWidth    <- o .: "width"
     cocoImageHeight   <- o .: "height"
     cocoImageFileName <- o .: "file_name"
-    cocoImageLicense  <- o .: "license"
-    cocoImageDateCoco <- o .: "date_captured"
+    cocoImageLicense  <- o .:? "license"
+    cocoImageDateCoco <- o .:? "date_captured"
     return CocoImage{..}
 
 instance ToJSON CocoImage where
@@ -145,8 +145,8 @@ instance ToJSON CocoCategory where
     ]
 
 data Coco = Coco
-  { cocoInfo        :: CocoInfo
-  , cocoLicenses    :: [CocoLicense]
+  { cocoInfo        :: Maybe CocoInfo
+  , cocoLicenses    :: Maybe [CocoLicense]
   , cocoImages      :: [CocoImage]
   , cocoAnnotations :: [CocoAnnotation]
   , cocoCategories  :: [CocoCategory]
@@ -154,8 +154,8 @@ data Coco = Coco
 
 instance FromJSON Coco where
   parseJSON = withObject "coco" $ \o -> do
-    cocoInfo        <- o .: "info"
-    cocoLicenses    <- o .: "licenses"
+    cocoInfo        <- o .:? "info"
+    cocoLicenses    <- o .:? "licenses"
     cocoImages      <- o .: "images"
     cocoAnnotations <- o .: "annotations"
     cocoCategories  <- o .: "categories"
