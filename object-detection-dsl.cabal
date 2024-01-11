@@ -99,6 +99,10 @@ executable object-detection-dsl-exe
     -- Other library packages from which modules are imported.
     build-depends:    base == 4.*
                     , object-detection-dsl
+                    , aeson
+                    , optparse-applicative
+                    , bytestring
+                    , text
 
     -- Directories containing source files.
     hs-source-dirs:   app

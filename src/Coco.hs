@@ -127,21 +127,21 @@ instance ToJSON CocoAnnotation where
 data CocoCategory = CocoCategory
   { cocoCategoryId   :: Int
   , cocoCategoryName :: Text
-  , cocoCategorySup  :: Text
+  , cocoCategorySupercategory  :: Text
   } deriving (Show, Eq, Generic)
 
 instance FromJSON CocoCategory where
   parseJSON = withObject "category" $ \o -> do
     cocoCategoryId   <- o .: "id"
     cocoCategoryName <- o .: "name"
-    cocoCategorySup  <- o .: "supercategory"
+    cocoCategorySupercategory  <- o .: "supercategory"
     return CocoCategory{..}
 
 instance ToJSON CocoCategory where
   toJSON CocoCategory{..} = object
     [ "id"            .= cocoCategoryId
     , "name"          .= cocoCategoryName
-    , "supercategory" .= cocoCategorySup
+    , "supercategory" .= cocoCategorySupercategory
     ]
 
 data Coco = Coco
