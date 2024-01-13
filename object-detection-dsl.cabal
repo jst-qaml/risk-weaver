@@ -61,6 +61,7 @@ library
     -- Modules exported by the library.
     exposed-modules:  Coco
                     , ODRiskDSL
+                    , Draw
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -76,6 +77,9 @@ library
                     , containers
                     , vector
                     , transformers
+                    , safe-exceptions
+                    , JuicyPixels
+                    , inline-c
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -103,6 +107,10 @@ executable object-detection-dsl-exe
                     , optparse-applicative
                     , bytestring
                     , text
+                    , file-embed
+                    , sixel
+                    , filepath
+                    , JuicyPixels
 
     -- Directories containing source files.
     hs-source-dirs:   app

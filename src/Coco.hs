@@ -12,6 +12,7 @@ module Coco where
 import           Data.Aeson
 import qualified Data.ByteString.Lazy as BS
 import           Data.Text            (Text)
+import qualified Data.Text            as T
 import           GHC.Generics
 
 data CocoInfo = CocoInfo
@@ -92,14 +93,19 @@ instance ToJSON CocoImage where
     , "date_captured" .= cocoImageDateCoco
     ]
 
+newtype CoCoBoundingBox = 
+  CoCoBoundingBox (Double,Double,Double,Double)  deriving (Show, Eq, Generic) 
+-- (x, y, width, height)
+
 data CocoAnnotation = CocoAnnotation
   { cocoAnnotationId       :: Int
   , cocoAnnotationImageId  :: Int
   , cocoAnnotationCategory :: Int
-  , cocoAnnotationSegment  :: [[Double]] -- [[x1, y1, x2, y2, ...]]
+  , cocoAnnotationSegment  :: Maybe [[Double]] -- [[x1, y1, x2, y2, ...]]
   , cocoAnnotationArea     :: Double
-  , cocoAnnotationBbox     :: [Double] -- [x, y, width, height]
-  , cocoAnnotationIsCrowd  :: Int
+  , cocoAnnotationBbox     :: CoCoBoundingBox
+  , cocoAnnotationScore    :: Maybe Double
+  , cocoAnnotationIsCrowd  :: Maybe Int
   } deriving (Show, Eq, Generic)
 
 instance FromJSON CocoAnnotation where
@@ -107,10 +113,11 @@ instance FromJSON CocoAnnotation where
     cocoAnnotationId       <- o .: "id"
     cocoAnnotationImageId  <- o .: "image_id"
     cocoAnnotationCategory <- o .: "category_id"
-    cocoAnnotationSegment  <- o .: "segmentation"
+    cocoAnnotationSegment  <- o .:? "segmentation"
     cocoAnnotationArea     <- o .: "area"
-    cocoAnnotationBbox     <- o .: "bbox"
-    cocoAnnotationIsCrowd  <- o .: "iscrowd"
+    cocoAnnotationBbox     <- fmap (\[x,y,w,h] -> CoCoBoundingBox (x,y,w,h)) $ o .: "bbox"
+    cocoAnnotationScore    <- o .:? "score"
+    cocoAnnotationIsCrowd  <- o .:? "iscrowd"
     return CocoAnnotation{..}
 
 instance ToJSON CocoAnnotation where
@@ -120,7 +127,7 @@ instance ToJSON CocoAnnotation where
     , "category_id" .= cocoAnnotationCategory
     , "segmentation".= cocoAnnotationSegment
     , "area"        .= cocoAnnotationArea
-    , "bbox"        .= cocoAnnotationBbox
+    , "bbox"        .= case cocoAnnotationBbox of CoCoBoundingBox (x,y,w,h) -> [x,y,w,h]
     , "iscrowd"     .= cocoAnnotationIsCrowd
     ]
 
@@ -180,3 +187,10 @@ readCoco path = do
 writeCoco :: FilePath -> Coco -> IO ()
 writeCoco path coco = BS.writeFile path $ encode coco
 
+getCocoImageByFileName :: Coco -> FilePath -> Maybe (CocoImage, [CocoAnnotation])
+getCocoImageByFileName coco fileName = 
+  case filter (\CocoImage{..} -> T.unpack cocoImageFileName == fileName) $ cocoImages coco of
+    [] -> Nothing
+    (x:_) -> 
+      let annotations = filter (\CocoAnnotation{..} -> cocoAnnotationImageId == cocoImageId x) $ cocoAnnotations coco
+      in Just (x, annotations)
