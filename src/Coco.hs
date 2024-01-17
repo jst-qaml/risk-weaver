@@ -6,7 +6,7 @@ Aeson is used for parsing JSON.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TypeFamilies      #-}
-{-# LANGUAGE StrictData #-}
+{-# LANGUAGE Strict #-}
 
 module Coco where
 
@@ -19,10 +19,11 @@ import qualified Data.Map as Map
 import Data.List (sort, sortBy, maximumBy)
 import Control.Monad (ap)
 import Codec.Picture.Metadata (Value(Double))
-import Debug.Trace (trace)
+import Data.Maybe (fromMaybe)
 
-myTrace :: Show a => String -> a -> a
-myTrace s a = trace (s ++ ": " ++ show a) a
+-- import Debug.Trace (trace)
+-- myTrace :: Show a => String -> a -> a
+-- myTrace s a = trace (s ++ ": " ++ show a) a
 
 newtype ImageId = ImageId Int deriving (Show, Ord, Eq, Generic)
 newtype CategoryId = CategoryId Int deriving (Show, Ord, Eq, Generic)
@@ -341,10 +342,14 @@ toTPorFP cocoMap@CocoMap{..} imageId categoryId iouThresh =
   let cocoImage = cocoMapCocoImage Map.! imageId
       -- detections is sorted by score in descending order.
       detections :: [CocoResult] =
-        sortBy (\cocoResult1 cocoResult2 -> compare (cocoResultScore cocoResult2) (cocoResultScore cocoResult1)) $
-        filter (\result -> cocoResultCategory result == categoryId) $ cocoMapCocoResult Map.! imageId
+        case Map.lookup imageId cocoMapCocoResult of
+          Nothing -> []
+          Just results -> 
+            sortBy (\cocoResult1 cocoResult2 -> compare (cocoResultScore cocoResult2) (cocoResultScore cocoResult1)) $
+            filter (\result -> cocoResultCategory result == categoryId) results
       groundTruthsList :: [CocoAnnotation] = 
-        filter (\annotation -> cocoAnnotationCategory annotation == categoryId) $ cocoMapCocoAnnotation Map.! imageId
+        filter (\annotation -> cocoAnnotationCategory annotation == categoryId) $ 
+        fromMaybe [] $ Map.lookup imageId cocoMapCocoAnnotation
       groundTruths :: Map.Map Int CocoAnnotation = 
         Map.fromList $ zip [0..] groundTruthsList
       numOfGroundTruths = Map.size groundTruths
