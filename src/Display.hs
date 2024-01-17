@@ -11,7 +11,7 @@ import qualified Data.Text as T
 import qualified Data.OSC1337 as OSC
 import qualified Data.Sixel as Sixel
 import System.FilePath ( (</>), takeBaseName, takeDirectory )
-
+import qualified Data.Map as Map
 
 putImage :: Either FilePath (Image PixelRGB8) -> IO ()
 putImage image' = do
@@ -34,7 +34,7 @@ putImage image' = do
       Sixel.putSixel image
       putStrLn ""     
 
-drawBoundingBox :: DynamicImage -> [CocoAnnotation] -> [CocoCategory] -> IO (Image PixelRGB8)
+drawBoundingBox :: DynamicImage -> [CocoAnnotation] -> Map.Map CategoryId CocoCategory -> IO (Image PixelRGB8)
 drawBoundingBox imageBin annotations categories = do
   let imageRGB8 = convertRGB8 imageBin
   forM_ annotations $ \annotation -> do
@@ -44,10 +44,10 @@ drawBoundingBox imageBin annotations categories = do
         width = round bw
         height = round bh
     drawRect x y (x+width) (y+height) (255,0,0) imageRGB8
-    drawString (T.unpack (cocoCategoryName (categories !! (cocoAnnotationCategory annotation - 1)))) x y (255,0,0) (0,0,0) imageRGB8
+    drawString (T.unpack (cocoCategoryName (categories Map.! cocoAnnotationCategory annotation))) x y (255,0,0) (0,0,0) imageRGB8
   return imageRGB8
 
-drawDetectionBoundingBox :: DynamicImage -> [CocoResult] -> [CocoCategory] -> Maybe Double -> IO (Image PixelRGB8)
+drawDetectionBoundingBox :: DynamicImage -> [CocoResult] -> Map.Map CategoryId CocoCategory -> Maybe Double -> IO (Image PixelRGB8)
 drawDetectionBoundingBox imageBin annotations categories scoreThreshold = do
   let imageRGB8 = convertRGB8 imageBin
   forM_ annotations $ \annotation -> do
@@ -58,14 +58,14 @@ drawDetectionBoundingBox imageBin annotations categories scoreThreshold = do
         height = round bh
         draw = do
           drawRect x y (x+width) (y+height) (255,0,0) imageRGB8
-          drawString (T.unpack (cocoCategoryName (categories !! (cocoResultCategory annotation - 1)))) x y (255,0,0) (0,0,0) imageRGB8
+          drawString (T.unpack (cocoCategoryName (categories Map.! cocoResultCategory annotation))) x y (255,0,0) (0,0,0) imageRGB8
           -- Use printf format to show score
-          drawString (printf "%.2f" (cocoResultScore annotation))  x (y + 10) (255,0,0) (0,0,0) imageRGB8
+          drawString (printf "%.2f" (unScore $ cocoResultScore annotation))  x (y + 10) (255,0,0) (0,0,0) imageRGB8
           -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
     case scoreThreshold of
       Nothing -> draw
       Just scoreThreshold -> do
-        if cocoResultScore annotation >= scoreThreshold
+        if cocoResultScore annotation >= Score scoreThreshold
           then draw
           else return ()
   return imageRGB8
@@ -86,7 +86,7 @@ showImage coco cocoFile imageFile enableBoundingBox = do
       case image' of
         Nothing -> putStrLn $ "Image file " ++ imageFile ++ " is not found."
         Just (image, annotations) -> do
-          let categories = cocoCategories coco
+          let categories = toCategoryMap coco
           imageBin' <- readImage imagePath
           case imageBin' of
             Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read."
@@ -110,6 +110,6 @@ showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold = do
       case imageBin' of
         Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read."
         Right imageBin -> do
-          let categories = cocoCategories coco
+          let categories = toCategoryMap coco
           imageRGB8 <- drawDetectionBoundingBox imageBin (filter (\res -> cocoResultImageId res == cocoImageId image) cocoResult) categories scoreThreshold
           putImage (Right imageRGB8)

@@ -114,6 +114,7 @@ executable object-detection-dsl-exe
                     , sixel
                     , filepath
                     , JuicyPixels
+                    , containers
 
     -- Directories containing source files.
     hs-source-dirs:   app

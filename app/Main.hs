@@ -10,14 +10,9 @@ import Options.Applicative
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
 import Data.FileEmbed (embedFile)
-import qualified Data.OSC1337 as OSC
-import qualified Data.Sixel as Sixel
-import System.FilePath ( (</>), takeBaseName, takeDirectory )
-import Codec.Picture
-import Text.Printf
-import System.Environment (lookupEnv)
-import Draw
 import Display
+import qualified Data.Map as Map
+import Text.Printf
 
 -- Add subcommands by optparse-applicative
 -- 1, list all images of coco file like `ls -l`
@@ -25,16 +20,23 @@ import Display
 -- 3, list all annotations of coco file
 
 data CocoCommand
-  = ListImages { cocoFile :: FilePath }
+  = ListImages{ cocoFile :: FilePath }
   | ListCategories { cocoFile :: FilePath }
   | ListAnnotations { cocoFile :: FilePath }
   | ListCocoResult { cocoResultFile :: FilePath }
-  | ShowImage { cocoFile :: FilePath, imageFile :: FilePath, enableBoundingBox :: Bool }
-  | ShowDetectionImage
+  | ShowImage
+  { cocoFile :: FilePath
+  , imageFile :: FilePath
+  , enableBoundingBox :: Bool
+  }| ShowDetectionImage
   { cocoFile :: FilePath
   , cocoResultFile :: FilePath
   , imageFile :: FilePath
   , scoreThreshold :: Maybe Double
+  }| Evaluate
+  { cocoFile :: FilePath
+  , cocoResultFile :: FilePath
+  , iouThreshold :: Maybe Double
   }
   | BashCompletion
   deriving (Show, Eq)
@@ -88,6 +90,17 @@ listCocoResult cocoResults = do
     putStrLn $ show (cocoResultImageId cocoResult) ++ "\t" ++ show (cocoResultCategory cocoResult) ++ "\t" ++ show (cocoResultScore cocoResult) ++ "\t" ++ show (cocoResultBbox cocoResult)
 
 
+evaluate :: Coco -> [CocoResult] -> Maybe Double -> IO ()
+evaluate coco cocoResults iouThreshold = do
+  -- Print mAP
+  let cocoMap = toCocoMap coco cocoResults
+      iouThreshold' = case iouThreshold of
+        Nothing -> 0.5
+        Just iouThreshold -> iouThreshold
+      mAP = Coco.mAP cocoMap (IOU iouThreshold')
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    putStrLn $ printf "%-12s %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) ((Map.fromList (snd mAP)) Map.! categoryId)
+  putStrLn $ printf "%-12s %.3f" "mAP" (fst mAP)
 
 bashCompletion :: IO ()
 bashCompletion = do
@@ -104,6 +117,7 @@ opts = subparser
   <> command "list-coco-result" (info (ListCocoResult <$> argument str (metavar "FILE")) (progDesc "list all coco result"))
   <> command "show-image" (info (ShowImage <$> argument str (metavar "FILE") <*> argument str (metavar "IMAGE_FILE") <*> switch (long "enable-bounding-box" <> short 'b' <> help "enable bounding box")) (progDesc "show image by sixel"))
   <> command "show-detection-image" (info (ShowDetectionImage <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image by sixel"))
+  <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold"))) (progDesc "evaluate coco file and coco result"))
   <> command "bash-completion" (info (pure BashCompletion) (progDesc "bash completion"))
   )
 
@@ -136,5 +150,9 @@ main = do
       ShowDetectionImage cocoFile cocoResultFile imageFile scoreThreshold -> do
         coco <- readCoco cocoFile
         showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold
+      Evaluate cocoFile cocoResultFile iouThreshold -> do
+        coco <- readCoco cocoFile
+        cocoResult <- readCocoResult cocoResultFile
+        evaluate coco cocoResult iouThreshold
       _ -> return ()
 
