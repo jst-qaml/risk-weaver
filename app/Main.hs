@@ -13,6 +13,7 @@ import Data.FileEmbed (embedFile)
 import Display
 import qualified Data.Map as Map
 import Text.Printf
+import Data.Maybe
 
 -- Add subcommands by optparse-applicative
 -- 1, list all images of coco file like `ls -l`
@@ -37,6 +38,7 @@ data CocoCommand
   { cocoFile :: FilePath
   , cocoResultFile :: FilePath
   , iouThreshold :: Maybe Double
+  , scoreThreshold :: Maybe Double
   }
   | BashCompletion
   deriving (Show, Eq)
@@ -90,17 +92,54 @@ listCocoResult cocoResults = do
     putStrLn $ show (cocoResultImageId cocoResult) ++ "\t" ++ show (cocoResultCategory cocoResult) ++ "\t" ++ show (cocoResultScore cocoResult) ++ "\t" ++ show (cocoResultBbox cocoResult)
 
 
-evaluate :: Coco -> [CocoResult] -> Maybe Double -> IO ()
-evaluate coco cocoResults iouThreshold = do
+evaluate :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> IO ()
+evaluate coco cocoResults iouThreshold scoreThresh = do
   -- Print mAP
   let cocoMap = toCocoMap coco cocoResults
       iouThreshold' = case iouThreshold of
-        Nothing -> 0.5
-        Just iouThreshold -> iouThreshold
-      mAP = Coco.mAP cocoMap (IOU iouThreshold')
+        Nothing -> IOU 0.5
+        Just iouThreshold -> IOU iouThreshold
+      scoreThresh' = case scoreThresh of
+        Nothing -> Score 0.1
+        Just scoreThresh -> Score scoreThresh
+      mAP = Coco.mAP cocoMap iouThreshold'
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     putStrLn $ printf "%-12s %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) ((Map.fromList (snd mAP)) Map.! categoryId)
   putStrLn $ printf "%-12s %.3f" "mAP" (fst mAP)
+  putStrLn ""
+
+  -- Print confusion matrix
+  let confusionMatrix = Coco.confusionMatrix cocoMap iouThreshold' scoreThresh'
+  putStrLn "#confusion matrix of recall: row is ground truth, column is prediction."
+  putStr $ printf "#%-11s" "Category"
+  putStr $ printf "%-12s" "Backgroud"
+  let (!!) dat key = fromMaybe 0 (Map.lookup key dat)
+      (!!!) dat key = fromMaybe Map.empty (Map.lookup key dat)
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+  putStrLn ""
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+    putStr $ printf "%-12d" (((confusionMatrixRecall confusionMatrix) !!! Gt categoryId) !! DtBackground)
+    forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
+      putStr $ printf "%-12d" (((confusionMatrixRecall confusionMatrix) !!! Gt categoryId) !! (Dt categoryId'))
+    putStrLn ""
+  putStrLn ""
+
+  putStrLn "#confusion matrix of precision: row is prediction, column is ground truth."
+  putStr $ printf "#%-11s" "Category"
+  putStr $ printf "%-12s" "Backgroud"
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+  putStrLn ""
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+    putStr $ printf "%-12d" (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! GtBackground)
+    forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
+      putStr $ printf "%-12d" (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! (Gt categoryId'))
+    putStrLn ""
+
+
 
 bashCompletion :: IO ()
 bashCompletion = do
@@ -117,7 +156,7 @@ opts = subparser
   <> command "list-coco-result" (info (ListCocoResult <$> argument str (metavar "FILE")) (progDesc "list all coco result"))
   <> command "show-image" (info (ShowImage <$> argument str (metavar "FILE") <*> argument str (metavar "IMAGE_FILE") <*> switch (long "enable-bounding-box" <> short 'b' <> help "enable bounding box")) (progDesc "show image by sixel"))
   <> command "show-detection-image" (info (ShowDetectionImage <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image by sixel"))
-  <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold"))) (progDesc "evaluate coco file and coco result"))
+  <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "evaluate coco result"))
   <> command "bash-completion" (info (pure BashCompletion) (progDesc "bash completion"))
   )
 
@@ -150,9 +189,9 @@ main = do
       ShowDetectionImage cocoFile cocoResultFile imageFile scoreThreshold -> do
         coco <- readCoco cocoFile
         showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold
-      Evaluate cocoFile cocoResultFile iouThreshold -> do
+      Evaluate cocoFile cocoResultFile iouThreshold scoreThreshold -> do
         coco <- readCoco cocoFile
         cocoResult <- readCocoResult cocoResultFile
-        evaluate coco cocoResult iouThreshold
+        evaluate coco cocoResult iouThreshold scoreThreshold
       _ -> return ()
 
