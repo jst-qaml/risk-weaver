@@ -5,15 +5,14 @@ module Main where
 
 import Coco
 import Control.Monad
-import Options.Applicative
-
-import qualified Data.Text as T
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
-import Display
-import qualified Data.Map as Map
-import Text.Printf
+import Data.Map qualified as Map
 import Data.Maybe
+import Data.Text qualified as T
+import Display
+import Options.Applicative
+import Text.Printf
 
 -- Add subcommands by optparse-applicative
 -- 1, list all images of coco file like `ls -l`
@@ -21,25 +20,27 @@ import Data.Maybe
 -- 3, list all annotations of coco file
 
 data CocoCommand
-  = ListImages{ cocoFile :: FilePath }
-  | ListCategories { cocoFile :: FilePath }
-  | ListAnnotations { cocoFile :: FilePath }
-  | ListCocoResult { cocoResultFile :: FilePath }
+  = ListImages {cocoFile :: FilePath}
+  | ListCategories {cocoFile :: FilePath}
+  | ListAnnotations {cocoFile :: FilePath}
+  | ListCocoResult {cocoResultFile :: FilePath}
   | ShowImage
-  { cocoFile :: FilePath
-  , imageFile :: FilePath
-  , enableBoundingBox :: Bool
-  }| ShowDetectionImage
-  { cocoFile :: FilePath
-  , cocoResultFile :: FilePath
-  , imageFile :: FilePath
-  , scoreThreshold :: Maybe Double
-  }| Evaluate
-  { cocoFile :: FilePath
-  , cocoResultFile :: FilePath
-  , iouThreshold :: Maybe Double
-  , scoreThreshold :: Maybe Double
-  }
+      { cocoFile :: FilePath,
+        imageFile :: FilePath,
+        enableBoundingBox :: Bool
+      }
+  | ShowDetectionImage
+      { cocoFile :: FilePath,
+        cocoResultFile :: FilePath,
+        imageFile :: FilePath,
+        scoreThreshold :: Maybe Double
+      }
+  | Evaluate
+      { cocoFile :: FilePath,
+        cocoResultFile :: FilePath,
+        iouThreshold :: Maybe Double,
+        scoreThreshold :: Maybe Double
+      }
   | BashCompletion
   deriving (Show, Eq)
 
@@ -91,7 +92,6 @@ listCocoResult cocoResults = do
   forM_ cocoResults $ \cocoResult -> do
     putStrLn $ show (cocoResultImageId cocoResult) ++ "\t" ++ show (cocoResultCategory cocoResult) ++ "\t" ++ show (cocoResultScore cocoResult) ++ "\t" ++ show (cocoResultBbox cocoResult)
 
-
 evaluate :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> IO ()
 evaluate coco cocoResults iouThreshold scoreThresh = do
   -- Print mAP
@@ -103,6 +103,7 @@ evaluate coco cocoResults iouThreshold scoreThresh = do
         Nothing -> Score 0.1
         Just scoreThresh -> Score scoreThresh
       mAP = Coco.mAP cocoMap iouThreshold'
+  putStrLn $ printf "%-12s %s" "#Category" "AP"
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     putStrLn $ printf "%-12s %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) ((Map.fromList (snd mAP)) Map.! categoryId)
   putStrLn $ printf "%-12s %.3f" "mAP" (fst mAP)
@@ -111,7 +112,7 @@ evaluate coco cocoResults iouThreshold scoreThresh = do
   -- Print confusion matrix
   let confusionMatrix = Coco.confusionMatrix cocoMap iouThreshold' scoreThresh'
   putStrLn "#confusion matrix of recall: row is ground truth, column is prediction."
-  putStr $ printf "#%-11s" "Category"
+  putStr $ printf "%-12s" "#Category"
   putStr $ printf "%-12s" "Backgroud"
   let (!!) dat key = fromMaybe 0 (Map.lookup key dat)
       (!!!) dat key = fromMaybe Map.empty (Map.lookup key dat)
@@ -139,8 +140,6 @@ evaluate coco cocoResults iouThreshold scoreThresh = do
       putStr $ printf "%-12d" (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! (Gt categoryId'))
     putStrLn ""
 
-
-
 bashCompletion :: IO ()
 bashCompletion = do
   -- Read from bash_completion.d/object-detection-dsl-exe and write to stdout
@@ -149,17 +148,17 @@ bashCompletion = do
   BS.putStr file
 
 opts :: Parser CocoCommand
-opts = subparser
-  ( command "list-images" (info (ListImages <$> argument str (metavar "FILE")) (progDesc "list all images of coco file"))
-  <> command "list-categories" (info (ListCategories <$> argument str (metavar "FILE")) (progDesc "list all categories of coco file"))
-  <> command "list-annotations" (info (ListAnnotations <$> argument str (metavar "FILE")) (progDesc "list all annotations of coco file"))
-  <> command "list-coco-result" (info (ListCocoResult <$> argument str (metavar "FILE")) (progDesc "list all coco result"))
-  <> command "show-image" (info (ShowImage <$> argument str (metavar "FILE") <*> argument str (metavar "IMAGE_FILE") <*> switch (long "enable-bounding-box" <> short 'b' <> help "enable bounding box")) (progDesc "show image by sixel"))
-  <> command "show-detection-image" (info (ShowDetectionImage <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image by sixel"))
-  <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "evaluate coco result"))
-  <> command "bash-completion" (info (pure BashCompletion) (progDesc "bash completion"))
-  )
-
+opts =
+  subparser
+    ( command "list-images" (info (ListImages <$> argument str (metavar "FILE")) (progDesc "list all images of coco file"))
+        <> command "list-categories" (info (ListCategories <$> argument str (metavar "FILE")) (progDesc "list all categories of coco file"))
+        <> command "list-annotations" (info (ListAnnotations <$> argument str (metavar "FILE")) (progDesc "list all annotations of coco file"))
+        <> command "list-coco-result" (info (ListCocoResult <$> argument str (metavar "FILE")) (progDesc "list all coco result"))
+        <> command "show-image" (info (ShowImage <$> argument str (metavar "FILE") <*> argument str (metavar "IMAGE_FILE") <*> switch (long "enable-bounding-box" <> short 'b' <> help "enable bounding box")) (progDesc "show image by sixel"))
+        <> command "show-detection-image" (info (ShowDetectionImage <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image by sixel"))
+        <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "evaluate coco result"))
+        <> command "bash-completion" (info (pure BashCompletion) (progDesc "bash completion"))
+    )
 
 main :: IO ()
 main = do
@@ -168,30 +167,29 @@ main = do
   cmd <- customExecParser (prefs showHelpOnEmpty) (info (helper <*> opts) (fullDesc <> progDesc "coco command line tool"))
 
   if cmd == BashCompletion
-  then bashCompletion
-  else do
-    case cmd of
-      ListImages cocoFile -> do
-        coco <- readCoco cocoFile
-        listImages coco
-      ListCategories cocoFile -> do
-        coco <- readCoco cocoFile
-        listCategories coco
-      ListAnnotations cocoFile -> do
-        coco <- readCoco cocoFile
-        listAnnotations coco
-      ListCocoResult cocoResultFile -> do
-        cocoResult <- readCocoResult cocoResultFile
-        listCocoResult cocoResult
-      ShowImage cocoFile imageFile enableBoundingBox -> do
-        coco <- readCoco cocoFile
-        showImage coco cocoFile imageFile enableBoundingBox
-      ShowDetectionImage cocoFile cocoResultFile imageFile scoreThreshold -> do
-        coco <- readCoco cocoFile
-        showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold
-      Evaluate cocoFile cocoResultFile iouThreshold scoreThreshold -> do
-        coco <- readCoco cocoFile
-        cocoResult <- readCocoResult cocoResultFile
-        evaluate coco cocoResult iouThreshold scoreThreshold
-      _ -> return ()
-
+    then bashCompletion
+    else do
+      case cmd of
+        ListImages cocoFile -> do
+          coco <- readCoco cocoFile
+          listImages coco
+        ListCategories cocoFile -> do
+          coco <- readCoco cocoFile
+          listCategories coco
+        ListAnnotations cocoFile -> do
+          coco <- readCoco cocoFile
+          listAnnotations coco
+        ListCocoResult cocoResultFile -> do
+          cocoResult <- readCocoResult cocoResultFile
+          listCocoResult cocoResult
+        ShowImage cocoFile imageFile enableBoundingBox -> do
+          coco <- readCoco cocoFile
+          showImage coco cocoFile imageFile enableBoundingBox
+        ShowDetectionImage cocoFile cocoResultFile imageFile scoreThreshold -> do
+          coco <- readCoco cocoFile
+          showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold
+        Evaluate cocoFile cocoResultFile iouThreshold scoreThreshold -> do
+          coco <- readCoco cocoFile
+          cocoResult <- readCocoResult cocoResultFile
+          evaluate coco cocoResult iouThreshold scoreThreshold
+        _ -> return ()

@@ -10,7 +10,7 @@
 
 module Draw where
 
-import qualified Codec.Picture as I
+import Codec.Picture qualified as I
 import Control.Exception.Safe
   ( SomeException (..),
     throwIO,
@@ -21,18 +21,18 @@ import Control.Monad
     forM_,
     when,
   )
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BSI
+import Data.ByteString qualified as BS
+import Data.ByteString.Internal qualified as BSI
 import Data.Int
-import qualified Data.Vector.Storable as V
+import Data.Vector.Storable qualified as V
 import Data.Word
-import qualified Foreign.ForeignPtr as F
-import qualified Foreign.Ptr as F
+import Foreign.ForeignPtr qualified as F
+import Foreign.Ptr qualified as F
 import GHC.Exts (IsList (fromList))
-import qualified Language.C.Inline as C
+import Language.C.Inline qualified as C
 import System.IO.Unsafe
 import Prelude hiding (max, min)
-import qualified Prelude as P
+import Prelude qualified as P
 
 C.include "<stdint.h>"
 
@@ -404,4 +404,3 @@ pixelFormat image = case image of
   I.ImageY16 _ -> Y16
   I.ImageYA16 _ -> YA16
   I.ImageY32 _ -> Y32
-

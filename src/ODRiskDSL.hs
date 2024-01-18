@@ -1,9 +1,9 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- Write DSL to define risk factor of object detetion.
 -- The DSL is a subset of Haskell.
@@ -15,13 +15,12 @@
 
 module ODRiskDSL where
 
-import Data.Map (Map)
-import Data.Vector (Vector)
-import Data.Maybe (Maybe)
-import Control.Monad.Trans.Reader (ReaderT, ask)
-import Control.Monad (mapM)
 import Coco
-
+import Control.Monad (mapM)
+import Control.Monad.Trans.Reader (ReaderT, ask)
+import Data.Map (Map)
+import Data.Maybe (Maybe)
+import Data.Vector (Vector)
 
 -- data DefaultErrorType a =
 --     FalsePositive a |
@@ -72,7 +71,7 @@ class BoundingBox a where
   sizeD :: Detection a -> Double
   classD :: Detection a -> ClassG a
   idD :: Detection a -> Idx a
-  
+
   isFrontD :: Detection a -> Detection a -> Bool
   isBackD :: Detection a -> Detection a -> Bool
   isLeftD :: Detection a -> Detection a -> Bool
@@ -97,24 +96,24 @@ class BoundingBox a where
 
   riskD :: Env a -> Detection a -> Risk a
   riskBB :: Env a -> Risk a
-  
-  confusionMatrixRecallBB :: Env a -> Map (ClassG a,ClassD a) Double
-  confusionMatrixAccuracyBB :: Env a -> Map (ClassD a,ClassG a) Double
-  confusionMatrixRecallBB' :: Env a -> Map (ClassG a,ClassD a) [Idx a]
-  confusionMatrixAccuracyBB' :: Env a -> Map (ClassD a,ClassG a) [Idx a]
+
+  confusionMatrixRecallBB :: Env a -> Map (ClassG a, ClassD a) Double
+  confusionMatrixAccuracyBB :: Env a -> Map (ClassD a, ClassG a) Double
+  confusionMatrixRecallBB' :: Env a -> Map (ClassG a, ClassD a) [Idx a]
+  confusionMatrixAccuracyBB' :: Env a -> Map (ClassD a, ClassG a) [Idx a]
   errorGroupsBB :: Env a -> Map (ClassG a) (Map (ErrorType a) [Idx a])
 
-class BoundingBox a => World a where
+class (BoundingBox a) => World a where
   type Image a :: *
   idI :: Image a -> Int
   env :: Image a -> Env a
   mAP :: Vector (Image a) -> Double
   ap :: Vector (Image a) -> Map (ClassG a) Double
   risk :: Vector (Image a) -> Double
-  confusionMatrixRecall :: Vector (Image a) -> Map (ClassG a,ClassD a) Double
-  confusionMatrixAccuracy :: Vector (Image a) -> Map (ClassD a,ClassG a) Double
-  confusionMatrixRecall' :: Vector (Image a) -> Map (ClassG a,ClassD a) [Idx a]
-  confusionMatrixAccuracy' :: Vector (Image a) -> Map (ClassD a,ClassG a) [Idx a]
+  confusionMatrixRecall :: Vector (Image a) -> Map (ClassG a, ClassD a) Double
+  confusionMatrixAccuracy :: Vector (Image a) -> Map (ClassD a, ClassG a) Double
+  confusionMatrixRecall' :: Vector (Image a) -> Map (ClassG a, ClassD a) [Idx a]
+  confusionMatrixAccuracy' :: Vector (Image a) -> Map (ClassD a, ClassG a) [Idx a]
   errorGroups :: Vector (Image a) -> Map (ClassG a) (Map (ErrorType a) [Idx a])
 
 loopG :: forall a m b. (BoundingBox a, Monad m, Num b) => (a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b
@@ -126,7 +125,6 @@ loopD :: forall a m b. (BoundingBox a, Monad m, Num b) => (Detection a -> Reader
 loopD fn = do
   env <- ask
   sum <$> mapM (\v -> fn v) (detection @a env)
-
 
 -- class BoundingBox a where
 --   data Detection a :: *
@@ -142,27 +140,26 @@ loopD fn = do
 -- instance BoundingBox CoCoBoundingBox where
 --   ...
 
-data BoundingBoxGT
-  = BoundingBoxGT
-  { x :: Double
-  , y :: Double
-  , w :: Double
-  , h :: Double
-  , cls :: Class
-  , idx :: Int
-  } deriving (Show)
+data BoundingBoxGT = BoundingBoxGT
+  { x :: Double,
+    y :: Double,
+    w :: Double,
+    h :: Double,
+    cls :: Class,
+    idx :: Int
+  }
+  deriving (Show)
 
-
-data BoundingBoxDT
-  = BoundingBoxDT
-  { x :: Double
-  , y :: Double
-  , w :: Double
-  , h :: Double
-  , cls :: Class
-  , score :: Double
-  , idx :: Int
-  } deriving (Show)
+data BoundingBoxDT = BoundingBoxDT
+  { x :: Double,
+    y :: Double,
+    w :: Double,
+    h :: Double,
+    cls :: Class,
+    score :: Double,
+    idx :: Int
+  }
+  deriving (Show)
 
 data Class
   = Background
@@ -184,57 +181,59 @@ data ErrorType0
   | TrueNegative
   deriving (Show)
 
-
 instance BoundingBox BoundingBoxGT where
   type Detection _ = BoundingBoxDT
   type ClassG _ = Class
   type ClassD _ = Class
   type ErrorType _ = ErrorType0
-  type InterestArea _ = [(Int,Int)]
+  type InterestArea _ = [(Int, Int)]
   type InterestObject _ = BoundingBoxGT
   data Env _ = MyEnv (Vector BoundingBoxGT, Vector BoundingBoxDT)
   type Idx _ = Int
   type Risk _ = Int
-  
+
   riskE _ = undefined
   interestArea _ = undefined
   interestObject _ = undefined
-  groundTruth (MyEnv (f,s)) = f
-  detection (MyEnv (f,s)) = s
+  groundTruth (MyEnv (f, s)) = f
+  detection (MyEnv (f, s)) = s
   confidenceScoreThresh _ = 0.4
   ioUThresh _ = 0.5
   scoreD v = v.score
   sizeD v = v.w * v.h
   classD v = v.cls
   idD v = v.idx
-  
+
   isFrontD _ _ = undefined
   isBackD _ _ = undefined
   isLeftD _ _ = undefined
   isRightD _ _ = undefined
-  isTopD  _ _ = undefined
-  isBottomD  _ _ = undefined
+  isTopD _ _ = undefined
+  isBottomD _ _ = undefined
   isBackGroundD Background = True
   isBackGroundD _ = False
-  detectD _ _  = undefined
-  errorType _ _  = undefined
+  detectD _ _ = undefined
+  errorType _ _ = undefined
 
   sizeG v = v.w * v.h
   classG v = v.cls
   angle _ _ = undefined
   idG v = v.idx
   ioU g d =
-    let intersection = (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
-                       * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
-    in intersection / (g.w * g.h + d.w * d.h - intersection)
+    let intersection =
+          (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
+            * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
+     in intersection / (g.w * g.h + d.w * d.h - intersection)
   ioG g d =
-    let intersection = (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
-                       * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
-    in intersection / (g.w * g.h)
+    let intersection =
+          (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
+            * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
+     in intersection / (g.w * g.h)
   ioD g d =
-    let intersection = (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
-                       * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
-    in intersection / (d.w * d.h)
+    let intersection =
+          (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
+            * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
+     in intersection / (d.w * d.h)
   detectG _ _ = undefined
 
   isInIeterestAreaD _ _ = undefined
@@ -242,28 +241,26 @@ instance BoundingBox BoundingBoxGT where
 
   riskD _ _ = undefined
   riskBB _ = undefined
-  
+
   confusionMatrixRecallBB _ = undefined
   confusionMatrixAccuracyBB _ = undefined
   confusionMatrixRecallBB' _ = undefined
   confusionMatrixAccuracyBB' _ = undefined
   errorGroupsBB _ = undefined
 
-
-
 myRisk :: forall a m. (Num (Risk a), BoundingBox a, Monad m) => ReaderT (Env a) m (Risk a)
 myRisk = do
   env <- ask
-  loopG $ \(gt :: a) -> 
+  loopG $ \(gt :: a) ->
     case detectG env gt of
       Nothing -> return 10
       Just (obj :: Detection a) -> do
         if ioU gt obj > ioUThresh env
-        then return 0
-        else if ioG gt obj > ioUThresh env
-             then return 1
-             else return 5
-
+          then return 0
+          else
+            if ioG gt obj > ioUThresh env
+              then return 1
+              else return 5
 
 main :: IO ()
 main = do

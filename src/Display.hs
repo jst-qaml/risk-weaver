@@ -1,17 +1,16 @@
-
 module Display where
 
 import Coco
-import Control.Monad
 import Codec.Picture
-import Text.Printf
-import System.Environment (lookupEnv)
+import Control.Monad
+import Data.Map qualified as Map
+import Data.OSC1337 qualified as OSC
+import Data.Sixel qualified as Sixel
+import Data.Text qualified as T
 import Draw
-import qualified Data.Text as T
-import qualified Data.OSC1337 as OSC
-import qualified Data.Sixel as Sixel
-import System.FilePath ( (</>), takeBaseName, takeDirectory )
-import qualified Data.Map as Map
+import System.Environment (lookupEnv)
+import System.FilePath (takeBaseName, takeDirectory, (</>))
+import Text.Printf
 
 putImage :: Either FilePath (Image PixelRGB8) -> IO ()
 putImage image' = do
@@ -32,36 +31,36 @@ putImage image' = do
       putStrLn ""
     _ -> do
       Sixel.putSixel image
-      putStrLn ""     
+      putStrLn ""
 
 drawBoundingBox :: DynamicImage -> [CocoAnnotation] -> Map.Map CategoryId CocoCategory -> IO (Image PixelRGB8)
 drawBoundingBox imageBin annotations categories = do
   let imageRGB8 = convertRGB8 imageBin
   forM_ annotations $ \annotation -> do
-    let (CoCoBoundingBox (bx,by,bw,bh)) = cocoAnnotationBbox annotation
+    let (CoCoBoundingBox (bx, by, bw, bh)) = cocoAnnotationBbox annotation
         x = round bx
         y = round by
         width = round bw
         height = round bh
-    drawRect x y (x+width) (y+height) (255,0,0) imageRGB8
-    drawString (T.unpack (cocoCategoryName (categories Map.! cocoAnnotationCategory annotation))) x y (255,0,0) (0,0,0) imageRGB8
+    drawRect x y (x + width) (y + height) (255, 0, 0) imageRGB8
+    drawString (T.unpack (cocoCategoryName (categories Map.! cocoAnnotationCategory annotation))) x y (255, 0, 0) (0, 0, 0) imageRGB8
   return imageRGB8
 
 drawDetectionBoundingBox :: DynamicImage -> [CocoResult] -> Map.Map CategoryId CocoCategory -> Maybe Double -> IO (Image PixelRGB8)
 drawDetectionBoundingBox imageBin annotations categories scoreThreshold = do
   let imageRGB8 = convertRGB8 imageBin
   forM_ annotations $ \annotation -> do
-    let (CoCoBoundingBox (bx,by,bw,bh)) = cocoResultBbox annotation
+    let (CoCoBoundingBox (bx, by, bw, bh)) = cocoResultBbox annotation
         x = round bx
         y = round by
         width = round bw
         height = round bh
         draw = do
-          drawRect x y (x+width) (y+height) (255,0,0) imageRGB8
-          drawString (T.unpack (cocoCategoryName (categories Map.! cocoResultCategory annotation))) x y (255,0,0) (0,0,0) imageRGB8
+          drawRect x y (x + width) (y + height) (255, 0, 0) imageRGB8
+          drawString (T.unpack (cocoCategoryName (categories Map.! cocoResultCategory annotation))) x y (255, 0, 0) (0, 0, 0) imageRGB8
           -- Use printf format to show score
-          drawString (printf "%.2f" (unScore $ cocoResultScore annotation))  x (y + 10) (255,0,0) (0,0,0) imageRGB8
-          -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
+          drawString (printf "%.2f" (unScore $ cocoResultScore annotation)) x (y + 10) (255, 0, 0) (0, 0, 0) imageRGB8
+    -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
     case scoreThreshold of
       Nothing -> draw
       Just scoreThreshold -> do
@@ -71,7 +70,7 @@ drawDetectionBoundingBox imageBin annotations categories scoreThreshold = do
   return imageRGB8
 
 -- Show image by sixel
-showImage :: Coco -> FilePath -> FilePath -> Bool ->  IO ()
+showImage :: Coco -> FilePath -> FilePath -> Bool -> IO ()
 showImage coco cocoFile imageFile enableBoundingBox = do
   -- Get a diretory of image file from cocoFile's filename.
   -- cocoFile's filename is the same as image directory.
@@ -80,7 +79,7 @@ showImage coco cocoFile imageFile enableBoundingBox = do
   let cocoFileNameWithoutExtension = takeBaseName cocoFile
       imageDir = takeDirectory (takeDirectory cocoFile) </> cocoFileNameWithoutExtension </> "images"
       imagePath = imageDir </> imageFile
-  if enableBoundingBox 
+  if enableBoundingBox
     then do
       let image' = getCocoImageByFileName coco imageFile
       case image' of
@@ -96,7 +95,7 @@ showImage coco cocoFile imageFile enableBoundingBox = do
     else do
       putImage (Left imagePath)
 
-showDetectionImage :: Coco -> FilePath -> FilePath -> FilePath -> Maybe Double-> IO ()
+showDetectionImage :: Coco -> FilePath -> FilePath -> FilePath -> Maybe Double -> IO ()
 showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold = do
   let cocoFileNameWithoutExtension = takeBaseName cocoFile
       imageDir = takeDirectory (takeDirectory cocoFile) </> cocoFileNameWithoutExtension </> "images"
