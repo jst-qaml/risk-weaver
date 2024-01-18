@@ -4,6 +4,7 @@
 module Main where
 
 import Coco
+import Metric
 import Control.Monad
 import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
@@ -102,7 +103,7 @@ evaluate coco cocoResults iouThreshold scoreThresh = do
       scoreThresh' = case scoreThresh of
         Nothing -> Score 0.1
         Just scoreThresh -> Score scoreThresh
-      mAP = Coco.mAP cocoMap iouThreshold'
+      mAP = Metric.mAP cocoMap iouThreshold'
   putStrLn $ printf "%-12s %s" "#Category" "AP"
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     putStrLn $ printf "%-12s %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) ((Map.fromList (snd mAP)) Map.! categoryId)
@@ -110,7 +111,7 @@ evaluate coco cocoResults iouThreshold scoreThresh = do
   putStrLn ""
 
   -- Print confusion matrix
-  let confusionMatrix = Coco.confusionMatrix cocoMap iouThreshold' scoreThresh'
+  let confusionMatrix = Metric.confusionMatrix cocoMap iouThreshold' scoreThresh'
   putStrLn "#confusion matrix of recall: row is ground truth, column is prediction."
   putStr $ printf "%-12s" "#Category"
   putStr $ printf "%-12s" "Backgroud"
