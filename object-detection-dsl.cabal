@@ -116,6 +116,8 @@ executable object-detection-dsl-exe
                     , filepath
                     , JuicyPixels
                     , containers
+                    , transformers
+                    , vector
 
     -- Directories containing source files.
     hs-source-dirs:   app

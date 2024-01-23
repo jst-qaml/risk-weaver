@@ -25,9 +25,9 @@ import GHC.Generics
 -- myTrace :: Show a => String -> a -> a
 -- myTrace s a = trace (s ++ ": " ++ show a) a
 
-newtype ImageId = ImageId Int deriving (Show, Ord, Eq, Generic)
+newtype ImageId = ImageId {unImageId :: Int} deriving (Show, Ord, Eq, Generic)
 
-newtype CategoryId = CategoryId Int deriving (Show, Ord, Eq, Generic)
+newtype CategoryId = CategoryId {unCategoryId :: Int} deriving (Show, Ord, Eq, Generic)
 
 newtype Score = Score {unScore :: Double} deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic)
 
@@ -333,3 +333,12 @@ toCocoMap coco cocoResult =
       cocoMapCategoryIds = map (\CocoCategory {..} -> cocoCategoryId) $ cocoCategories coco
    in CocoMap {..}
 
+-- filterCocoMap :: CocoMap -> [ImageId] -> CocoMap
+-- filterCocoMap cocoMap imageIds =
+--   let cocoMapImageId = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapImageId cocoMap
+--       cocoMapCocoImage = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapCocoImage cocoMap
+--       cocoMapCocoAnnotation = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapCocoAnnotation cocoMap
+--       cocoMapCocoResult = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapCocoResult cocoMap
+--       cocoMapFilepath = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapFilepath cocoMap
+--       cocoMapImageIds = imageIds
+--    in CocoMap {..}

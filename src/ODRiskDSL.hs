@@ -4,6 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- Write DSL to define risk factor of object detetion.
 -- The DSL is a subset of Haskell.
@@ -17,10 +18,13 @@ module ODRiskDSL where
 
 import Coco
 import Control.Monad (mapM)
-import Control.Monad.Trans.Reader (ReaderT, ask)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Map (Map)
 import Data.Maybe (Maybe)
 import Data.Vector (Vector)
+import qualified Data.Vector as Vector
+import qualified Data.List as List
 
 -- data DefaultErrorType a =
 --     FalsePositive a |
@@ -148,7 +152,7 @@ data BoundingBoxGT = BoundingBoxGT
     cls :: Class,
     idx :: Int
   }
-  deriving (Show)
+  deriving (Show,Eq)
 
 data BoundingBoxDT = BoundingBoxDT
   { x :: Double,
@@ -159,7 +163,7 @@ data BoundingBoxDT = BoundingBoxDT
     score :: Double,
     idx :: Int
   }
-  deriving (Show)
+  deriving (Show,Eq)
 
 data Class
   = Background
@@ -171,7 +175,7 @@ data Class
   | Train
   | Motorcycle
   | Bicycle
-  deriving (Show)
+  deriving (Show,Eq)
 
 data ErrorType0
   = FalsePositive
@@ -179,7 +183,7 @@ data ErrorType0
   | FalseNegativeOther
   | TruePositive
   | TrueNegative
-  deriving (Show)
+  deriving (Show,Eq)
 
 instance BoundingBox BoundingBoxGT where
   type Detection _ = BoundingBoxDT
@@ -188,17 +192,22 @@ instance BoundingBox BoundingBoxGT where
   type ErrorType _ = ErrorType0
   type InterestArea _ = [(Int, Int)]
   type InterestObject _ = BoundingBoxGT
-  data Env _ = MyEnv (Vector BoundingBoxGT, Vector BoundingBoxDT)
+  data Env _ = MyEnv {
+    envGroundTruth :: Vector BoundingBoxGT,
+    envDetection :: Vector BoundingBoxDT,
+    envConfidenceScoreThresh :: Double,
+    envIoUThresh :: Double
+  }
   type Idx _ = Int
   type Risk _ = Int
 
   riskE _ = undefined
   interestArea _ = undefined
   interestObject _ = undefined
-  groundTruth (MyEnv (f, s)) = f
-  detection (MyEnv (f, s)) = s
-  confidenceScoreThresh _ = 0.4
-  ioUThresh _ = 0.5
+  groundTruth env = envGroundTruth env
+  detection env = envDetection env
+  confidenceScoreThresh env = envConfidenceScoreThresh env
+  ioUThresh env = envIoUThresh env
   scoreD v = v.score
   sizeD v = v.w * v.h
   classD v = v.cls
@@ -234,8 +243,18 @@ instance BoundingBox BoundingBoxGT where
           (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
             * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
      in intersection / (d.w * d.h)
-  detectG _ _ = undefined
+  detectG :: Env BoundingBoxGT　-> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
+  detectG env gt =
+    let dts = detection env
+        dts' = filter (\dt -> scoreD @BoundingBoxGT dt > confidenceScoreThresh env) $ Vector.toList dts
+        dts'' = filter (\dt -> classD @BoundingBoxGT dt == classG @BoundingBoxGT gt) dts'
+        -- Get max IOU detection with ioUThresh
+        dts''' = filter (\(iou, _) -> iou > ioUThresh env) $ map (\dt -> (ioU gt dt, dt) ) dts''
+     in case dts''' of
+          [] -> Nothing
+          dts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts
 
+  isInIeterestAreaD :: InterestArea BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isInIeterestAreaD _ _ = undefined
   isInIeterestAreaG _ _ = undefined
 
@@ -248,7 +267,7 @@ instance BoundingBox BoundingBoxGT where
   confusionMatrixAccuracyBB' _ = undefined
   errorGroupsBB _ = undefined
 
-myRisk :: forall a m. (Num (Risk a), BoundingBox a, Monad m) => ReaderT (Env a) m (Risk a)
+myRisk :: forall a m. (Num (Risk a), BoundingBox a, Monad m, MonadIO m) => ReaderT (Env a) m (Risk a)
 myRisk = do
   env <- ask
   loopG $ \(gt :: a) ->
@@ -262,6 +281,3 @@ myRisk = do
               then return 1
               else return 5
 
-main :: IO ()
-main = do
-  return ()
