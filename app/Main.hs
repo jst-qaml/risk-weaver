@@ -5,7 +5,8 @@ module Main where
 
 import Coco
 import Metric
-import qualified ODRiskDSL as DSL
+import qualified DSL.Core as DSL
+import qualified DSL.BDD as DSL
 import Control.Monad
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
