@@ -53,19 +53,24 @@ data Class
   | Bicycle
   deriving (Show,Eq)
 
-data ErrorType0
-  = FalsePositive
-  | FalseNegativeBackground
-  | FalseNegativeOther
-  | TruePositive
-  | TrueNegative
-  deriving (Show,Eq)
+-- data ErrorType0
+--   = FalsePositive
+--   | FalseNegativeBackground
+--   | FalseNegativeOther
+--   | TruePositive
+--   | TrueNegative
+--   deriving (Show,Eq)
 
 instance BoundingBox BoundingBoxGT where
   type Detection _ = BoundingBoxDT
   type ClassG _ = Class
   type ClassD _ = Class
-  type ErrorType _ = ErrorType0
+  data ErrorType _ = 
+      FalsePositive
+    | FalseNegativeBackground
+    | FalseNegativeOther
+    | TruePositive
+    | TrueNegative deriving (Show, Eq)
   type InterestArea _ = [(Int, Int)]
   type InterestObject _ = BoundingBoxGT
   data Env _ = MyEnv {
@@ -146,7 +151,7 @@ instance BoundingBox BoundingBoxGT where
 myRisk :: forall a m. (Num (Risk a), BoundingBox a, Monad m, MonadIO m) => ReaderT (Env a) m (Risk a)
 myRisk = do
   env <- ask
-  loopG $ \(gt :: a) ->
+  loopG (+) 0 $ \(gt :: a) ->
     case detectG env gt of
       Nothing -> return 10
       Just (obj :: Detection a) -> do
@@ -157,16 +162,16 @@ myRisk = do
               then return 1
               else return 5
 
-customFalseNegative :: forall a m. (Num (Risk a), BoundingBox a, Monad m, MonadIO m) => ReaderT (Env a) m (Risk a)
-customFalseNegative = do
+myRiskWithError :: forall a m. (Monoid [(Risk a,ErrorType a)], BoundingBox a, Monad m, MonadIO m, a ~ BoundingBoxGT) => ReaderT (Env a) m [(Risk a,ErrorType a)]
+myRiskWithError = do
   env <- ask
-  loopG $ \(gt :: a) ->
+  loopG (++) [] $ \(gt :: a) ->
     case detectG env gt of
-      Nothing -> return 10
+      Nothing -> return [(10, FalseNegativeOther)]
       Just (obj :: Detection a) -> do
         if ioU gt obj > ioUThresh env
-          then return 0
+          then return [(0, TruePositive)]
           else
             if ioG gt obj > ioUThresh env
-              then return 1
-              else return 5
+              then return [(1, FalseNegativeOther)]
+              else return [(5, FalseNegativeOther)]

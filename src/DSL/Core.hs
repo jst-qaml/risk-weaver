@@ -57,7 +57,7 @@ class BoundingBox a where
   type Detection a :: *
   type ClassG a :: *
   type ClassD a :: *
-  type ErrorType a :: *
+  data ErrorType a :: *
   type InterestArea a :: *
   type InterestObject a :: *
   data Env a :: *
@@ -120,13 +120,13 @@ class (BoundingBox a) => World a where
   confusionMatrixAccuracy' :: Vector (Image a) -> Map (ClassD a, ClassG a) [Idx a]
   errorGroups :: Vector (Image a) -> Map (ClassG a) (Map (ErrorType a) [Idx a])
 
-loopG :: forall a m b. (BoundingBox a, Monad m, Num b) => (a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b
-loopG fn = do
+loopG :: forall a m b. (BoundingBox a, Monad m) => (b -> b -> b) -> b -> (a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b
+loopG add init fn = do
   env <- ask
-  sum <$> mapM (\v -> fn v) (groundTruth @a env)
+  foldl add init <$> mapM fn (groundTruth @a env)
 
-loopD :: forall a m b. (BoundingBox a, Monad m, Num b) => (Detection a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b
-loopD fn = do
+loopD :: forall a m b. (BoundingBox a, Monad m) => (b -> b -> b) -> b -> (Detection a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b
+loopD add init fn = do
   env <- ask
-  sum <$> mapM (\v -> fn v) (detection @a env)
+  foldl add init <$> mapM fn (detection @a env)
 
