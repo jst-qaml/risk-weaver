@@ -10,7 +10,7 @@ module DSL.BDD where
 
 import Coco
 import Control.Monad (mapM)
-import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, runReader)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Map (Map)
 import Data.Maybe (Maybe)
@@ -71,7 +71,7 @@ instance BoundingBox BoundingBoxGT where
     | FalseNegativeOther
     | TruePositive
     | TrueNegative deriving (Show, Eq)
-  type InterestArea _ = [(Int, Int)]
+  type InterestArea _ = [(Double, Double)]
   type InterestObject _ = BoundingBoxGT
   data Env _ = MyEnv {
     envGroundTruth :: Vector BoundingBoxGT,
@@ -82,8 +82,9 @@ instance BoundingBox BoundingBoxGT where
   type Idx _ = Int
   type Risk _ = Int
 
-  riskE _ = undefined
-  interestArea _ = undefined
+  riskE env = runReader (myRisk @BoundingBoxGT) env
+  interestArea :: Env BoundingBoxGT -> InterestArea BoundingBoxGT
+  interestArea _ = [(0,1), (0.3,0.6), (0.7,0.6), (1,1), (1,2), (0,2)]
   interestObject _ = undefined
   groundTruth env = envGroundTruth env
   detection env = envDetection env
@@ -148,7 +149,7 @@ instance BoundingBox BoundingBoxGT where
   confusionMatrixAccuracyBB' _ = undefined
   errorGroupsBB _ = undefined
 
-myRisk :: forall a m. (Num (Risk a), BoundingBox a, Monad m, MonadIO m) => ReaderT (Env a) m (Risk a)
+myRisk :: forall a m. (Num (Risk a), BoundingBox a, Monad m) => ReaderT (Env a) m (Risk a)
 myRisk = do
   env <- ask
   loopG (+) 0 $ \(gt :: a) ->
@@ -162,7 +163,7 @@ myRisk = do
               then return 1
               else return 5
 
-myRiskWithError :: forall a m. (Monoid [(Risk a,ErrorType a)], BoundingBox a, Monad m, MonadIO m, a ~ BoundingBoxGT) => ReaderT (Env a) m [(Risk a,ErrorType a)]
+myRiskWithError :: forall a m. (Monoid [(Risk a,ErrorType a)], BoundingBox a, Monad m, a ~ BoundingBoxGT) => ReaderT (Env a) m [(Risk a,ErrorType a)]
 myRiskWithError = do
   env <- ask
   loopG (++) [] $ \(gt :: a) ->
