@@ -3,7 +3,7 @@
 
 module Main where
 
-import Format.Coco
+import Codec.Picture.Metadata (Value (Double))
 import Control.Concurrent (yield)
 import Control.Monad
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
@@ -18,11 +18,11 @@ import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Display
+import Format.Coco
 import Metric
 import Options.Applicative
-import Text.Printf
 import System.Random
-import Codec.Picture.Metadata (Value(Double))
+import Text.Printf
 
 data CocoCommand
   = ListImages {cocoFile :: FilePath}
@@ -277,7 +277,7 @@ generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreTh
       accumulatedProbabilitis = scanl (+) 0 probabilitis
       numDatasets = length $ cocoMapImageIds cocoMap
       seed = mkStdGen 0
-      
+
   -- Generate dataset by probability.
   -- The dataset's format is same as coco dataset.
   -- Accumurate probability
@@ -301,9 +301,10 @@ generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreTh
                   (accumulatedProbability, imageId) = imageSets Vector.! mid
                in if start == end
                     then imageId
-                    else if accumulatedProbability > randomNum
-                      then findImageIdFromImageSets' start mid
-                      else findImageIdFromImageSets' (mid + 1) end
+                    else
+                      if accumulatedProbability > randomNum
+                        then findImageIdFromImageSets' start mid
+                        else findImageIdFromImageSets' (mid + 1) end
          in findImageIdFromImageSets' start end
       lotteryN :: Int -> StdGen -> Int -> [ImageId]
       lotteryN _ _ 0 = []

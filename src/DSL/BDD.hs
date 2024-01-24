@@ -8,7 +8,6 @@
 
 module DSL.BDD where
 
-import Format.Coco
 import Control.Monad (mapM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReader, runReaderT)
@@ -20,6 +19,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Format.Coco
 
 data BoundingBoxGT = BoundingBoxGT
   { x :: Double,
@@ -102,7 +102,7 @@ instance BoundingBox BoundingBoxGT where
      in (intersection / (dtFront.w * dtFront.h)) >= 0.99
 
   isBackD _ _ = undefined
-    
+
   isLeftD _ _ = undefined
   isRightD _ _ = undefined
   isTopD _ _ = undefined

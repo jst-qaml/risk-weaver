@@ -17,9 +17,9 @@
 module DSL.Core where
 
 import Control.Monad.Trans.Reader (ReaderT, ask)
-import Data.Vector (Vector)
-import Data.Map (Map)
 import Data.Kind (Type)
+import Data.Map (Map)
+import Data.Vector (Vector)
 
 class BoundingBox a where
   type Detection a :: Type

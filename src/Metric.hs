@@ -6,7 +6,6 @@
 
 module Metric where
 
-import Format.Coco
 import Codec.Picture.Metadata (Value (Double))
 import Control.Monad (ap)
 import Data.Aeson
@@ -16,6 +15,7 @@ import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Format.Coco
 import GHC.Generics
 
 newtype IOU = IOU Double deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic)
