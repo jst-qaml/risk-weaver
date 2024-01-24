@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+PROGRAM=object-detection-dsl-exe
+PROGRAM=object-detection-dsl-exe
+
+__object_detection_dsl_exe_bash_complete() {
+    local cur prev opts base
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    # The first argument is the command name
+    if [[ ${COMP_CWORD} == 1 ]] ; then
+        opts=$(object-detection-dsl-exe 2>&1 | awk '{if (a) {print $1;} if ("Available commands:" == $0) {a = 1}}')
+        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        return 0
+    # elif [ ${COMP_CWORD} -gt 1 ] ; then
+    #     #echo "${COMP_WORDS[1]}" 
+    #     opts=$(object-detection-dsl-exe "${COMP_WORDS[1]}" --help | grep ' -.*' | sed -e 's/^ *//g'  -e 's/[, ].*//g')
+    #     COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+    #     return 0
+    else 
+        COMPREPLY=()
+    fi
+    return 0
+}
+
+complete  -o bashdefault -o default -F __object_detection_dsl_exe_bash_complete object-detection-dsl-exe 
