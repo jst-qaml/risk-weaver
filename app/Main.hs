@@ -82,7 +82,7 @@ listImages coco = do
   -- sixth column is image date captured
   putStrLn "id\tfile_name\twidth\theight\tlicense\tdate_captured"
   forM_ (cocoImages coco) $ \CocoImage {..} -> do
-    putStrLn $ show cocoImageId ++ "\t" ++ T.unpack cocoImageFileName ++ "\t" ++ show cocoImageWidth ++ "\t" ++ show cocoImageHeight ++ "\t" ++ show cocoImageLicense ++ "\t" ++ show cocoImageDateCoco
+    putStrLn $ show (unImageId cocoImageId) ++ "\t" ++ T.unpack cocoImageFileName ++ "\t" ++ show cocoImageWidth ++ "\t" ++ show cocoImageHeight ++ "\t" ++ show cocoImageLicense ++ "\t" ++ show cocoImageDateCoco
 
 listCategories :: Coco -> IO ()
 listCategories coco = do
@@ -260,7 +260,7 @@ showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
   let sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare risk2 risk1) risks
   forM_ sortedRisks $ \(imageId, risk) -> do
     let cocoImage = (cocoMapCocoImage cocoMap) Map.! imageId
-    putStrLn $ printf "%-12d %-12s %d" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) risk
+    putStrLn $ printf "%-12d %-12s %.3f" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) risk
 
 generateRiskWeightedDataset :: Coco -> [CocoResult] -> FilePath -> Maybe Double -> Maybe Double -> IO ()
 generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreThresh = do
