@@ -119,6 +119,7 @@ executable object-detection-dsl-exe
                     , containers
                     , transformers
                     , vector
+                    , random
 
     -- Directories containing source files.
     hs-source-dirs:   app

@@ -80,7 +80,7 @@ instance BoundingBox BoundingBoxGT where
       envIoUThresh :: Double
     }
   type Idx _ = Int
-  type Risk _ = Int
+  type Risk _ = Double
 
   riskE env = runReader (myRisk @BoundingBoxGT) env
   interestArea :: Env BoundingBoxGT -> InterestArea BoundingBoxGT
@@ -95,8 +95,14 @@ instance BoundingBox BoundingBoxGT where
   classD v = v.cls
   idD v = v.idx
 
-  isFrontD _ _ = undefined
+  isFrontD dtBack dtFront =
+    let intersection =
+          (min (dtBack.x + dtBack.w) (dtFront.x + dtFront.w) - max dtBack.x dtFront.x)
+            * (min (dtBack.y + dtBack.h) (dtFront.y + dtFront.h) - max dtBack.y dtFront.y)
+     in (intersection / (dtFront.w * dtFront.h)) >= 0.99
+
   isBackD _ _ = undefined
+    
   isLeftD _ _ = undefined
   isRightD _ _ = undefined
   isTopD _ _ = undefined
@@ -149,7 +155,7 @@ instance BoundingBox BoundingBoxGT where
   confusionMatrixAccuracyBB' _ = undefined
   errorGroupsBB _ = undefined
 
-myRisk :: forall a m. (Num (Risk a), BoundingBox a, Monad m) => ReaderT (Env a) m (Risk a)
+myRisk :: forall a m. (Fractional (Risk a), Num (Risk a), BoundingBox a, Monad m) => ReaderT (Env a) m (Risk a)
 myRisk = do
   env <- ask
   loopG (+) 0 $ \(gt :: a) ->
@@ -157,7 +163,7 @@ myRisk = do
       Nothing -> return 10
       Just (obj :: Detection a) -> do
         if ioU gt obj > ioUThresh env
-          then return 0
+          then return 0.001
           else
             if ioG gt obj > ioUThresh env
               then return 1

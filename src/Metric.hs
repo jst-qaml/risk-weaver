@@ -1,7 +1,3 @@
-{-
-This module provides COCO format parser of object detection dataset.
-Aeson is used for parsing JSON.
--}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -139,20 +135,6 @@ mAP cocoMap@CocoMap {..} iouThresh =
       aps = map (\categoryId -> apForCategory cocoMap categoryId iouThresh) categoryIds
    in (sum aps / fromIntegral (length aps), zip categoryIds aps)
 
--- data ErrorType
---   = TP
---   | FN
---   | FP
---   | TN
---   deriving (Show,Eq,Ord)
-
--- | Calculate TP or FP
--- | TP = true positive
--- | FP = false positive
--- | When the value is True, TP is calculated.
--- | When the value is False, FP is calculated.
--- toErrorType :: CocoMap -> ImageId -> CategoryId -> IOU -> [(CocoResult, CoCoBoundingBox, ErrorType)]
--- toErrorType cocoMap@CocoMap{..} imageId categoryId iouThresh = undefined
 data ConfusionMatrix = ConfusionMatrix
   { confusionMatrixRecall :: Map.Map (Gt CategoryId) (Map.Map (Dt CategoryId) Int),
     confusionMatrixPrecision :: Map.Map (Dt CategoryId) (Map.Map (Gt CategoryId) Int),

@@ -332,13 +332,3 @@ toCocoMap coco cocoResult =
       cocoMapImageIds = map (\CocoImage {..} -> cocoImageId) $ cocoImages coco
       cocoMapCategoryIds = map (\CocoCategory {..} -> cocoCategoryId) $ cocoCategories coco
    in CocoMap {..}
-
--- filterCocoMap :: CocoMap -> [ImageId] -> CocoMap
--- filterCocoMap cocoMap imageIds =
---   let cocoMapImageId = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapImageId cocoMap
---       cocoMapCocoImage = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapCocoImage cocoMap
---       cocoMapCocoAnnotation = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapCocoAnnotation cocoMap
---       cocoMapCocoResult = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapCocoResult cocoMap
---       cocoMapFilepath = Map.filterWithKey (\k _ -> k `elem` imageIds) $ cocoMapFilepath cocoMap
---       cocoMapImageIds = imageIds
---    in CocoMap {..}

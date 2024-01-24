@@ -21,11 +21,8 @@ import Display
 import Metric
 import Options.Applicative
 import Text.Printf
-
--- Add subcommands by optparse-applicative
--- 1, list all images of coco file like `ls -l`
--- 2, list all categories of coco file
--- 3, list all annotations of coco file
+import System.Random
+import Codec.Picture.Metadata (Value(Double))
 
 data CocoCommand
   = ListImages {cocoFile :: FilePath}
@@ -63,6 +60,13 @@ data CocoCommand
         iouThreshold :: Maybe Double,
         scoreThreshold :: Maybe Double,
         imageId :: Maybe Int
+      }
+  | GenerateRiskWeightedDataset
+      { cocoFile :: FilePath,
+        cocoResultFile :: FilePath,
+        cocoOutputFile :: FilePath,
+        iouThreshold :: Maybe Double,
+        scoreThreshold :: Maybe Double
       }
   | BashCompletion
   deriving (Show, Eq)
@@ -224,7 +228,7 @@ cocoResultToVector coco imageId = (groundTruth, detection)
 
 runRisk ::
   CocoMap ->
-  IO [(ImageId, Int)]
+  IO [(ImageId, Double)]
 runRisk cocoMap = do
   forM (cocoMapImageIds cocoMap) $ \imageId -> do
     let (groundTruth, detection) = cocoResultToVector cocoMap imageId
@@ -258,6 +262,74 @@ showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
     let cocoImage = (cocoMapCocoImage cocoMap) Map.! imageId
     putStrLn $ printf "%-12d %-12s %d" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) risk
 
+generateRiskWeightedDataset :: Coco -> [CocoResult] -> FilePath -> Maybe Double -> Maybe Double -> IO ()
+generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreThresh = do
+  let cocoMap = toCocoMap coco cocoResults
+      iouThreshold' = case iouThreshold of
+        Nothing -> IOU 0.5
+        Just iouThreshold -> IOU iouThreshold
+      scoreThresh' = case scoreThresh of
+        Nothing -> Score 0.4
+        Just scoreThresh -> Score scoreThresh
+  risks <- runRisk cocoMap
+  let sumRisks = sum $ map snd risks
+      probabilitis = map (\(_, risk) -> risk / sumRisks) risks
+      accumulatedProbabilitis = scanl (+) 0 probabilitis
+      numDatasets = length $ cocoMapImageIds cocoMap
+      seed = mkStdGen 0
+      
+  -- Generate dataset by probability.
+  -- The dataset's format is same as coco dataset.
+  -- Accumurate probability
+  -- Gen sorted list by accumulated probability with image id.
+  -- Lottery by random number
+  -- Get image id by lottery
+  -- Generate random number between 0 and 1
+  -- Find accumulated probability that is greater than random number
+  -- Get image id by accumulated probability
+
+  -- imageSets has accumulated probability and image id.
+  -- It uses binary search to find image id by random number.
+  let imageSets :: Vector (Double, ImageId)
+      imageSets = Vector.fromList $ zip accumulatedProbabilitis (cocoMapImageIds cocoMap)
+      findImageIdFromImageSets :: Vector (Double, ImageId) -> Double -> ImageId
+      findImageIdFromImageSets imageSets randomNum =
+        let (start, end) = (0, Vector.length imageSets - 1)
+            findImageIdFromImageSets' :: Int -> Int -> ImageId
+            findImageIdFromImageSets' start end =
+              let mid = (start + end) `div` 2
+                  (accumulatedProbability, imageId) = imageSets Vector.! mid
+               in if start == end
+                    then imageId
+                    else if accumulatedProbability > randomNum
+                      then findImageIdFromImageSets' start mid
+                      else findImageIdFromImageSets' (mid + 1) end
+         in findImageIdFromImageSets' start end
+      lotteryN :: Int -> StdGen -> Int -> [ImageId]
+      lotteryN _ _ 0 = []
+      lotteryN numDatasets seed n =
+        let (randNum, seed') = randomR (0, 1) seed
+            imageId = findImageIdFromImageSets imageSets randNum
+         in imageId : lotteryN numDatasets seed' (n - 1)
+      imageIds = lotteryN numDatasets seed numDatasets
+      cocoImages' = map (\imageId -> (cocoMapCocoImage cocoMap) Map.! imageId) imageIds
+      newCoco =
+        Coco
+          { cocoImages = cocoImages',
+            cocoCategories = cocoCategories coco,
+            cocoAnnotations = [],
+            cocoLicenses = cocoLicenses coco,
+            cocoInfo = cocoInfo coco
+          }
+  writeCoco cocoOutputFile newCoco
+
+
+  
+  
+
+  
+
+    
 bashCompletion :: IO ()
 bashCompletion = do
   -- Read from bash_completion.d/object-detection-dsl-exe and write to stdout
@@ -276,6 +348,7 @@ opts =
         <> command "show-detection-image" (info (ShowDetectionImage <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image by sixel"))
         <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "evaluate coco result"))
         <> command "show-risk" (info (ShowRisk <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "show risk"))
+        <> command "generate-risk-weighted-dataset" (info (GenerateRiskWeightedDataset <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "OUTPUT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "generate risk weighted dataset"))
         <> command "bash-completion" (info (pure BashCompletion) (progDesc "bash completion"))
     )
 
@@ -313,4 +386,8 @@ main = do
       coco <- readCoco cocoFile
       cocoResult <- readCocoResult cocoResultFile
       showRisk coco cocoResult iouThreshold scoreThreshold (fmap ImageId imageId)
+    GenerateRiskWeightedDataset cocoFile cocoResultFile cocoOutputFile iouThreshold scoreThreshold -> do
+      coco <- readCoco cocoFile
+      cocoResult <- readCocoResult cocoResultFile
+      generateRiskWeightedDataset coco cocoResult cocoOutputFile iouThreshold scoreThreshold
     _ -> return ()
