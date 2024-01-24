@@ -10,6 +10,7 @@ Aeson is used for parsing JSON.
 
 module Metric where
 
+import Coco
 import Codec.Picture.Metadata (Value (Double))
 import Control.Monad (ap)
 import Data.Aeson
@@ -20,9 +21,9 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics
-import Coco
 
 newtype IOU = IOU Double deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic)
+
 newtype IOG = IOG Double deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic)
 
 data Dt a
@@ -34,7 +35,6 @@ data Gt a
   = Gt a
   | GtBackground
   deriving (Show, Eq, Ord)
-
 
 iou :: CoCoBoundingBox -> CoCoBoundingBox -> IOU
 iou (CoCoBoundingBox (x1, y1, w1, h1)) (CoCoBoundingBox (x2, y2, w2, h2)) =

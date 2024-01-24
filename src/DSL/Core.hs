@@ -3,8 +3,8 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- Write DSL to define risk factor of object detetion.
 -- The DSL is a subset of Haskell.
@@ -18,13 +18,13 @@ module DSL.Core where
 
 import Coco
 import Control.Monad (mapM)
-import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
+import Data.List qualified as List
 import Data.Map (Map)
 import Data.Maybe (Maybe)
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector
-import qualified Data.List as List
+import Data.Vector qualified as Vector
 
 -- data DefaultErrorType a =
 --     FalsePositive a |
@@ -129,4 +129,3 @@ loopD :: forall a m b. (BoundingBox a, Monad m) => (b -> b -> b) -> b -> (Detect
 loopD add init fn = do
   env <- ask
   foldl add init <$> mapM fn (detection @a env)
-

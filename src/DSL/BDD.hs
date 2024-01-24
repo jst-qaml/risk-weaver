@@ -3,22 +3,23 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module DSL.BDD where
 
 import Coco
 import Control.Monad (mapM)
-import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, runReader)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReader, runReaderT)
+import DSL.Core
+import Data.List qualified as List
 import Data.Map (Map)
 import Data.Maybe (Maybe)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector
-import qualified Data.List as List
-import DSL.Core
-
+import Data.Vector qualified as Vector
 
 data BoundingBoxGT = BoundingBoxGT
   { x :: Double,
@@ -28,7 +29,7 @@ data BoundingBoxGT = BoundingBoxGT
     cls :: Class,
     idx :: Int
   }
-  deriving (Show,Eq)
+  deriving (Show, Eq)
 
 data BoundingBoxDT = BoundingBoxDT
   { x :: Double,
@@ -39,7 +40,7 @@ data BoundingBoxDT = BoundingBoxDT
     score :: Double,
     idx :: Int
   }
-  deriving (Show,Eq)
+  deriving (Show, Eq)
 
 data Class
   = Background
@@ -51,40 +52,39 @@ data Class
   | Train
   | Motorcycle
   | Bicycle
-  deriving (Show,Eq)
+  deriving (Show, Eq)
 
--- data ErrorType0
---   = FalsePositive
---   | FalseNegativeBackground
---   | FalseNegativeOther
---   | TruePositive
---   | TrueNegative
---   deriving (Show,Eq)
+data FNError
+  = Boundary
+  | LowScore
+  | MissClass
+  | Occulusion
+  deriving (Show, Eq)
 
 instance BoundingBox BoundingBoxGT where
   type Detection _ = BoundingBoxDT
   type ClassG _ = Class
   type ClassD _ = Class
-  data ErrorType _ = 
-      FalsePositive
-    | FalseNegativeBackground
-    | FalseNegativeOther
+  data ErrorType _
+    = FalsePositive
+    | FalseNegative (Set FNError)
     | TruePositive
-    | TrueNegative deriving (Show, Eq)
+    | TrueNegative
+    deriving (Show, Eq)
   type InterestArea _ = [(Double, Double)]
   type InterestObject _ = BoundingBoxGT
-  data Env _ = MyEnv {
-    envGroundTruth :: Vector BoundingBoxGT,
-    envDetection :: Vector BoundingBoxDT,
-    envConfidenceScoreThresh :: Double,
-    envIoUThresh :: Double
-  }
+  data Env _ = MyEnv
+    { envGroundTruth :: Vector BoundingBoxGT,
+      envDetection :: Vector BoundingBoxDT,
+      envConfidenceScoreThresh :: Double,
+      envIoUThresh :: Double
+    }
   type Idx _ = Int
   type Risk _ = Int
 
   riskE env = runReader (myRisk @BoundingBoxGT) env
   interestArea :: Env BoundingBoxGT -> InterestArea BoundingBoxGT
-  interestArea _ = [(0,1), (0.3,0.6), (0.7,0.6), (1,1), (1,2), (0,2)]
+  interestArea _ = [(0, 1), (0.3, 0.6), (0.7, 0.6), (1, 1), (1, 2), (0, 2)]
   interestObject _ = undefined
   groundTruth env = envGroundTruth env
   detection env = envDetection env
@@ -125,13 +125,13 @@ instance BoundingBox BoundingBoxGT where
           (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
             * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
      in intersection / (d.w * d.h)
-  detectG :: Env BoundingBoxGT　-> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
+  detectG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
   detectG env gt =
     let dts = detection env
         dts' = filter (\dt -> scoreD @BoundingBoxGT dt > confidenceScoreThresh env) $ Vector.toList dts
         dts'' = filter (\dt -> classD @BoundingBoxGT dt == classG @BoundingBoxGT gt) dts'
         -- Get max IOU detection with ioUThresh
-        dts''' = filter (\(iou, _) -> iou > ioUThresh env) $ map (\dt -> (ioU gt dt, dt) ) dts''
+        dts''' = filter (\(iou, _) -> iou > ioUThresh env) $ map (\dt -> (ioU gt dt, dt)) dts''
      in case dts''' of
           [] -> Nothing
           dts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts
@@ -163,16 +163,16 @@ myRisk = do
               then return 1
               else return 5
 
-myRiskWithError :: forall a m. (Monoid [(Risk a,ErrorType a)], BoundingBox a, Monad m, a ~ BoundingBoxGT) => ReaderT (Env a) m [(Risk a,ErrorType a)]
+myRiskWithError :: forall a m. (Monoid [(Risk a, ErrorType a)], BoundingBox a, Monad m, a ~ BoundingBoxGT) => ReaderT (Env a) m [(Risk a, ErrorType a)]
 myRiskWithError = do
   env <- ask
   loopG (++) [] $ \(gt :: a) ->
     case detectG env gt of
-      Nothing -> return [(10, FalseNegativeOther)]
+      Nothing -> return [(10, FalseNegative Set.empty)]
       Just (obj :: Detection a) -> do
         if ioU gt obj > ioUThresh env
           then return [(0, TruePositive)]
           else
             if ioG gt obj > ioUThresh env
-              then return [(1, FalseNegativeOther)]
-              else return [(5, FalseNegativeOther)]
+              then return [(1, FalseNegative Set.empty)]
+              else return [(5, FalseNegative Set.empty)]

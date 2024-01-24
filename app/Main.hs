@@ -4,23 +4,23 @@
 module Main where
 
 import Coco
-import Metric
-import qualified DSL.Core as DSL
-import qualified DSL.BDD as DSL
+import Control.Concurrent (yield)
 import Control.Monad
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
+import DSL.BDD qualified as DSL
+import DSL.Core qualified as DSL
 import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
+import Data.List (sortBy)
 import Data.Map qualified as Map
 import Data.Maybe
 import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Display
+import Metric
 import Options.Applicative
 import Text.Printf
-import Control.Concurrent (yield)
-import Data.List (sortBy)
 
 -- Add subcommands by optparse-applicative
 -- 1, list all images of coco file like `ls -l`
@@ -116,13 +116,13 @@ listCocoResult cocoResults = do
     putStrLn $ show (cocoResultImageId cocoResult) ++ "\t" ++ show (cocoResultCategory cocoResult) ++ "\t" ++ show (cocoResultScore cocoResult) ++ "\t" ++ show (cocoResultBbox cocoResult)
 
 evaluate :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
-evaluate coco cocoResults iouThreshold scoreThresh mImageId= do
+evaluate coco cocoResults iouThreshold scoreThresh mImageId = do
   -- Print mAP
   let cocoMap =
         let cocoMap' = toCocoMap coco cocoResults
-        in case mImageId of
-          Nothing -> cocoMap'
-          Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
+         in case mImageId of
+              Nothing -> cocoMap'
+              Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
       iouThreshold' = case iouThreshold of
         Nothing -> IOU 0.5
         Just iouThreshold -> IOU iouThreshold
@@ -167,64 +167,74 @@ evaluate coco cocoResults iouThreshold scoreThresh mImageId= do
       putStr $ printf "%-12d" (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! (Gt categoryId'))
     putStrLn ""
 
-
 cocoCategoryToClass :: CocoMap -> CategoryId -> DSL.Class
 cocoCategoryToClass coco categoryId =
   let cocoCategory = (cocoMapCocoCategory coco) Map.! categoryId
-  in
-    case T.unpack (cocoCategoryName cocoCategory) of
-      "pedestrian" -> DSL.Pedestrian
-      "rider" -> DSL.Rider
-      "car" -> DSL.Car
-      "truck" -> DSL.Truck
-      "bus" -> DSL.Bus
-      "train" -> DSL.Train
-      "motorcycle" -> DSL.Motorcycle
-      "bicycle" -> DSL.Bicycle
-      _ -> DSL.Background
-
+   in case T.unpack (cocoCategoryName cocoCategory) of
+        "pedestrian" -> DSL.Pedestrian
+        "rider" -> DSL.Rider
+        "car" -> DSL.Car
+        "truck" -> DSL.Truck
+        "bus" -> DSL.Bus
+        "train" -> DSL.Train
+        "motorcycle" -> DSL.Motorcycle
+        "bicycle" -> DSL.Bicycle
+        _ -> DSL.Background
 
 cocoResultToVector :: CocoMap -> ImageId -> (Vector DSL.BoundingBoxGT, Vector DSL.BoundingBoxDT)
 cocoResultToVector coco imageId = (groundTruth, detection)
   where
-    groundTruth = Vector.fromList $ maybe [] (map (\CocoAnnotation {..} ->
-      let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoAnnotationBbox
-      in
-        DSL.BoundingBoxGT {
-          x = cocox,
-          y = cocoy,
-          w = cocow,
-          h = cocoh,
-          cls = cocoCategoryToClass coco cocoAnnotationCategory,
-          idx = cocoAnnotationId
-        }
-      )) (Map.lookup imageId (cocoMapCocoAnnotation coco))
-    detection = Vector.fromList $ maybe [] (map (\CocoResult {..} ->
-      let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoResultBbox
-      in
-        DSL.BoundingBoxDT {
-          x = cocox,
-          y = cocoy,
-          w = cocow,
-          h = cocoh,
-          cls = cocoCategoryToClass coco cocoResultCategory,
-          score = unScore cocoResultScore,
-          idx = unImageId cocoResultImageId
-        }
-      )) (Map.lookup imageId (cocoMapCocoResult coco))
+    groundTruth =
+      Vector.fromList $
+        maybe
+          []
+          ( map
+              ( \CocoAnnotation {..} ->
+                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoAnnotationBbox
+                   in DSL.BoundingBoxGT
+                        { x = cocox,
+                          y = cocoy,
+                          w = cocow,
+                          h = cocoh,
+                          cls = cocoCategoryToClass coco cocoAnnotationCategory,
+                          idx = cocoAnnotationId
+                        }
+              )
+          )
+          (Map.lookup imageId (cocoMapCocoAnnotation coco))
+    detection =
+      Vector.fromList $
+        maybe
+          []
+          ( map
+              ( \CocoResult {..} ->
+                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoResultBbox
+                   in DSL.BoundingBoxDT
+                        { x = cocox,
+                          y = cocoy,
+                          w = cocow,
+                          h = cocoh,
+                          cls = cocoCategoryToClass coco cocoResultCategory,
+                          score = unScore cocoResultScore,
+                          idx = unImageId cocoResultImageId
+                        }
+              )
+          )
+          (Map.lookup imageId (cocoMapCocoResult coco))
 
-runRisk
-  :: CocoMap
-  -> IO [(ImageId, Int)]
+runRisk ::
+  CocoMap ->
+  IO [(ImageId, Int)]
 runRisk cocoMap = do
   forM (cocoMapImageIds cocoMap) $ \imageId -> do
     let (groundTruth, detection) = cocoResultToVector cocoMap imageId
-    let env = DSL.MyEnv {
-      envGroundTruth = groundTruth,
-      envDetection = detection,
-      envConfidenceScoreThresh = 0.4,
-      envIoUThresh = 0.5
-    }
+    let env =
+          DSL.MyEnv
+            { envGroundTruth = groundTruth,
+              envDetection = detection,
+              envConfidenceScoreThresh = 0.4,
+              envIoUThresh = 0.5
+            }
     risk <- flip runReaderT env (DSL.myRisk @DSL.BoundingBoxGT)
     return (imageId, risk)
 
@@ -232,9 +242,9 @@ showRisk :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageI
 showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
   let cocoMap =
         let cocoMap' = toCocoMap coco cocoResults
-        in case mImageId of
-          Nothing -> cocoMap'
-          Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
+         in case mImageId of
+              Nothing -> cocoMap'
+              Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
       iouThreshold' = case iouThreshold of
         Nothing -> IOU 0.5
         Just iouThreshold -> IOU iouThreshold
@@ -247,7 +257,6 @@ showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
   forM_ sortedRisks $ \(imageId, risk) -> do
     let cocoImage = (cocoMapCocoImage cocoMap) Map.! imageId
     putStrLn $ printf "%-12d %-12s %d" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) risk
-
 
 bashCompletion :: IO ()
 bashCompletion = do
