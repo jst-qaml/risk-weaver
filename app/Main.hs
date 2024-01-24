@@ -323,13 +323,6 @@ generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreTh
           }
   writeCoco cocoOutputFile newCoco
 
-
-  
-  
-
-  
-
-    
 bashCompletion :: IO ()
 bashCompletion = do
   -- Read from bash_completion.d/object-detection-dsl-exe and write to stdout
