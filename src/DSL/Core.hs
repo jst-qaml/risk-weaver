@@ -26,33 +26,6 @@ import Data.Maybe (Maybe)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 
--- data DefaultErrorType a =
---     FalsePositive a |
---     FalseNegative a |
---     TruePositive a |
---     TrueNegative a |
---     FalsePositiveClass a |
---     FalseNegativeClass a |
---     TruePositiveClass a |
---     TrueNegativeClass a |
---     FalsePositivePosition a |
---     FalseNegativePosition a |
---     TruePositivePosition a |
---     TrueNegativePosition a |
---     FalsePositiveZDepth a |
---     FalseNegativeZDepth a |
---     TruePositiveZDepth a |
---     TrueNegativeZDepth a |
---     FalsePositiveIntersectionOfBoundingBoxes a |
---     FalseNegativeIntersectionOfBoundingBoxes a |
---     TruePositiveIntersectionOfBoundingBoxes a |
---     TrueNegativeIntersectionOfBoundingBoxes a |
---     FalsePositiveRelationBetweenObjects a |
---     FalseNegativeRelationBetweenObjects a |
---     TruePositiveRelationBetweenObjects a |
---     TrueNegativeRelationBetweenObjects a
---     deriving (Show)
-
 class BoundingBox a where
   type Detection a :: *
   type ClassG a :: *
