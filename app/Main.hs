@@ -3,7 +3,7 @@
 
 module Main where
 
-import Coco
+import Format.Coco
 import Control.Concurrent (yield)
 import Control.Monad
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)

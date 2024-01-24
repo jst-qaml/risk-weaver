@@ -1,6 +1,6 @@
 module Display where
 
-import Coco
+import Format.Coco
 import Codec.Picture
 import Control.Monad
 import Data.Map qualified as Map

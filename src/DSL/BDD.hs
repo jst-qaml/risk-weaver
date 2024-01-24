@@ -8,7 +8,7 @@
 
 module DSL.BDD where
 
-import Coco
+import Format.Coco
 import Control.Monad (mapM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReader, runReaderT)

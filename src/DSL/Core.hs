@@ -16,26 +16,21 @@
 
 module DSL.Core where
 
-import Coco
-import Control.Monad (mapM)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
-import Data.List qualified as List
-import Data.Map (Map)
-import Data.Maybe (Maybe)
+import Control.Monad.Trans.Reader (ReaderT, ask)
 import Data.Vector (Vector)
-import Data.Vector qualified as Vector
+import Data.Map (Map)
+import Data.Kind (Type)
 
 class BoundingBox a where
-  type Detection a :: *
-  type ClassG a :: *
-  type ClassD a :: *
-  data ErrorType a :: *
-  type InterestArea a :: *
-  type InterestObject a :: *
-  data Env a :: *
-  type Idx a :: *
-  type Risk a :: *
+  type Detection a :: Type
+  type ClassG a :: Type
+  type ClassD a :: Type
+  data ErrorType a :: Type
+  type InterestArea a :: Type
+  type InterestObject a :: Type
+  data Env a :: Type
+  type Idx a :: Type
+  type Risk a :: Type
 
   riskE :: Env a -> Risk a
   interestArea :: Env a -> InterestArea a
@@ -81,7 +76,7 @@ class BoundingBox a where
   errorGroupsBB :: Env a -> Map (ClassG a) (Map (ErrorType a) [Idx a])
 
 class (BoundingBox a) => World a where
-  type Image a :: *
+  type Image a :: Type
   idI :: Image a -> Int
   env :: Image a -> Env a
   mAP :: Vector (Image a) -> Double

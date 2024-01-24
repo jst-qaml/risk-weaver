@@ -59,7 +59,7 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  Coco
+    exposed-modules:  Format.Coco
                     , DSL.Core
                     , DSL.BDD
                     , Draw

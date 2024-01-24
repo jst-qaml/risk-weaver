@@ -6,7 +6,7 @@
 
 module Metric where
 
-import Coco
+import Format.Coco
 import Codec.Picture.Metadata (Value (Double))
 import Control.Monad (ap)
 import Data.Aeson
