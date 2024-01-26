@@ -8,7 +8,7 @@ name:               risk-weaver
 -- PVP summary:     +-+------- breaking API changes
 --                  | | +----- non-breaking API additions
 --                  | | | +--- code changes with no API change
-version:            0.1.0.0
+version:            0.1.0.1
 
 synopsis: A DSL for Risk-oriented Object Detection Requirements
 description: Please see the README on GitHub at <https://github.com/jst-qaml/risk-weaver#readme>
@@ -22,7 +22,7 @@ category:           Development
 build-type:         Simple
 
 extra-doc-files:    CHANGELOG.md
-
+extra-source-files: bash_completion.d/risk-weaver-exe
 source-repository head
   type: git
   location: https://github.com/jst-qaml/risk-weaver

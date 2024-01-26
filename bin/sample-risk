@@ -1,12 +1,12 @@
-#!/usr/bin/env stack
-{- stack
-  script
-  --resolver lts-22.07
-  --package risk-weaver
-  --package vector
-  --package constainers
-  --package text
+#!/usr/bin/env cabal
+{- cabal:
+build-depends: base
+             , risk-weaver
+	     , containers
+	     , vector
+	     , text
 -}
+
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards #-}
