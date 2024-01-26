@@ -23,6 +23,10 @@ build-type:         Simple
 
 extra-doc-files:    CHANGELOG.md
 
+source-repository head
+  type: git
+  location: https://github.com/jst-qaml/risk-weaver
+
 common warnings
     ghc-options: -Wall
 
