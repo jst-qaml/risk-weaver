@@ -1,4 +1,4 @@
-module Display where
+module RiskWeaver.Display where
 
 import Codec.Picture
 import Control.Monad
@@ -6,8 +6,8 @@ import Data.Map qualified as Map
 import Data.OSC1337 qualified as OSC
 import Data.Sixel qualified as Sixel
 import Data.Text qualified as T
-import Draw
-import Format.Coco
+import RiskWeaver.Draw
+import RiskWeaver.Format.Coco
 import System.Environment (lookupEnv)
 import System.FilePath (takeBaseName, takeDirectory, (</>))
 import Text.Printf

@@ -6,15 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- Write DSL to define risk factor of object detetion.
--- The DSL is a subset of Haskell.
--- It can define poisitions, z-depth, class-type, intersection of bounding boxes, and risk factor.
-
--- The DSL requirements are:
--- 1. The DSL should be able to define relation between objects.
--- 2. The DSL should be able to define risk factor of object detection based on the relation between objects.
-
-module DSL.Core where
+module RiskWeaver.DSL.Core where
 
 import Control.Monad.Trans.Reader (ReaderT, ask)
 import Data.Kind (Type)

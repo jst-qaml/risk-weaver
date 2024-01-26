@@ -8,7 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Draw where
+module RiskWeaver.Draw where
 
 import Codec.Picture qualified as I
 import Control.Exception.Safe

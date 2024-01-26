@@ -6,12 +6,12 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module DSL.BDD where
+module RiskWeaver.DSL.BDD where
 
 import Control.Monad (mapM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReader, runReaderT)
-import DSL.Core
+import RiskWeaver.DSL.Core
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Maybe (Maybe)
@@ -19,7 +19,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Format.Coco
+import RiskWeaver.Format.Coco
 
 data BoundingBoxGT = BoundingBoxGT
   { x :: Double,

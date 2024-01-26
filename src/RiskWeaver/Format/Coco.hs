@@ -8,7 +8,7 @@ Aeson is used for parsing JSON.
 {-# LANGUAGE Strict #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Format.Coco where
+module RiskWeaver.Format.Coco where
 
 import Codec.Picture.Metadata (Value (Double))
 import Control.Monad (ap)

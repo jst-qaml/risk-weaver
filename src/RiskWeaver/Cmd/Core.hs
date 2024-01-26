@@ -1,12 +1,11 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Main where
+module RiskWeaver.Cmd.Core where
 
 import Control.Monad
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
-import DSL.BDD qualified as DSL
-import DSL.Core qualified as DSL
+import RiskWeaver.DSL.Core qualified as DSL
 import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
 import Data.List (sortBy)
@@ -15,9 +14,11 @@ import Data.Maybe
 import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Display
-import Format.Coco
-import Metric
+import RiskWeaver.Display
+import RiskWeaver.Format.Coco
+import qualified RiskWeaver.Metric as Metric
+import RiskWeaver.Metric
+
 import Options.Applicative
 import System.Random
 import Text.Printf
@@ -68,6 +69,12 @@ data CocoCommand
       }
   | BashCompletion
   deriving (Show, Eq)
+
+data RiskCommands = 
+  RiskCommands
+    { showRisk :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+    , generateRiskWeightedDataset :: Coco -> [CocoResult] -> FilePath -> Maybe Double -> Maybe Double -> IO ()
+    }
 
 listImages :: Coco -> IO ()
 listImages coco = do
@@ -169,164 +176,11 @@ evaluate coco cocoResults iouThreshold scoreThresh mImageId = do
       putStr $ printf "%-12d" (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! (Gt categoryId'))
     putStrLn ""
 
-cocoCategoryToClass :: CocoMap -> CategoryId -> DSL.Class
-cocoCategoryToClass coco categoryId =
-  let cocoCategory = (cocoMapCocoCategory coco) Map.! categoryId
-   in case T.unpack (cocoCategoryName cocoCategory) of
-        "pedestrian" -> DSL.Pedestrian
-        "rider" -> DSL.Rider
-        "car" -> DSL.Car
-        "truck" -> DSL.Truck
-        "bus" -> DSL.Bus
-        "train" -> DSL.Train
-        "motorcycle" -> DSL.Motorcycle
-        "bicycle" -> DSL.Bicycle
-        _ -> DSL.Background
-
-cocoResultToVector :: CocoMap -> ImageId -> (Vector DSL.BoundingBoxGT, Vector DSL.BoundingBoxDT)
-cocoResultToVector coco imageId = (groundTruth, detection)
-  where
-    groundTruth =
-      Vector.fromList $
-        maybe
-          []
-          ( map
-              ( \CocoAnnotation {..} ->
-                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoAnnotationBbox
-                   in DSL.BoundingBoxGT
-                        { x = cocox,
-                          y = cocoy,
-                          w = cocow,
-                          h = cocoh,
-                          cls = cocoCategoryToClass coco cocoAnnotationCategory,
-                          idx = cocoAnnotationId
-                        }
-              )
-          )
-          (Map.lookup imageId (cocoMapCocoAnnotation coco))
-    detection =
-      Vector.fromList $
-        maybe
-          []
-          ( map
-              ( \CocoResult {..} ->
-                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoResultBbox
-                   in DSL.BoundingBoxDT
-                        { x = cocox,
-                          y = cocoy,
-                          w = cocow,
-                          h = cocoh,
-                          cls = cocoCategoryToClass coco cocoResultCategory,
-                          score = unScore cocoResultScore,
-                          idx = unImageId cocoResultImageId
-                        }
-              )
-          )
-          (Map.lookup imageId (cocoMapCocoResult coco))
-
-runRisk ::
-  CocoMap ->
-  IO [(ImageId, Double)]
-runRisk cocoMap = do
-  forM (cocoMapImageIds cocoMap) $ \imageId -> do
-    let (groundTruth, detection) = cocoResultToVector cocoMap imageId
-    let env =
-          DSL.MyEnv
-            { envGroundTruth = groundTruth,
-              envDetection = detection,
-              envConfidenceScoreThresh = 0.4,
-              envIoUThresh = 0.5
-            }
-    risk <- flip runReaderT env (DSL.myRisk @DSL.BoundingBoxGT)
-    return (imageId, risk)
-
-showRisk :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
-showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
-  let cocoMap =
-        let cocoMap' = toCocoMap coco cocoResults
-         in case mImageId of
-              Nothing -> cocoMap'
-              Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
-      iouThreshold' = case iouThreshold of
-        Nothing -> IOU 0.5
-        Just iouThreshold -> IOU iouThreshold
-      scoreThresh' = case scoreThresh of
-        Nothing -> Score 0.4
-        Just scoreThresh -> Score scoreThresh
-  risks <- runRisk cocoMap
-  putStrLn $ printf "%-12s %-12s %s" "#ImageId" "Filename" "Risk"
-  let sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare risk2 risk1) risks
-  forM_ sortedRisks $ \(imageId, risk) -> do
-    let cocoImage = (cocoMapCocoImage cocoMap) Map.! imageId
-    putStrLn $ printf "%-12d %-12s %.3f" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) risk
-
-generateRiskWeightedDataset :: Coco -> [CocoResult] -> FilePath -> Maybe Double -> Maybe Double -> IO ()
-generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreThresh = do
-  let cocoMap = toCocoMap coco cocoResults
-      iouThreshold' = case iouThreshold of
-        Nothing -> IOU 0.5
-        Just iouThreshold -> IOU iouThreshold
-      scoreThresh' = case scoreThresh of
-        Nothing -> Score 0.4
-        Just scoreThresh -> Score scoreThresh
-  risks <- runRisk cocoMap
-  let sumRisks = sum $ map snd risks
-      probabilitis = map (\(_, risk) -> risk / sumRisks) risks
-      accumulatedProbabilitis = scanl (+) 0 probabilitis
-      numDatasets = length $ cocoMapImageIds cocoMap
-      seed = mkStdGen 0
-
-  -- Generate dataset by probability.
-  -- The dataset's format is same as coco dataset.
-  -- Accumurate probability
-  -- Gen sorted list by accumulated probability with image id.
-  -- Lottery by random number
-  -- Get image id by lottery
-  -- Generate random number between 0 and 1
-  -- Find accumulated probability that is greater than random number
-  -- Get image id by accumulated probability
-
-  -- imageSets has accumulated probability and image id.
-  -- It uses binary search to find image id by random number.
-  let imageSets :: Vector (Double, ImageId)
-      imageSets = Vector.fromList $ zip accumulatedProbabilitis (cocoMapImageIds cocoMap)
-      findImageIdFromImageSets :: Vector (Double, ImageId) -> Double -> ImageId
-      findImageIdFromImageSets imageSets randomNum =
-        let (start, end) = (0, Vector.length imageSets - 1)
-            findImageIdFromImageSets' :: Int -> Int -> ImageId
-            findImageIdFromImageSets' start end =
-              let mid = (start + end) `div` 2
-                  (accumulatedProbability, imageId) = imageSets Vector.! mid
-               in if start == end
-                    then imageId
-                    else
-                      if accumulatedProbability > randomNum
-                        then findImageIdFromImageSets' start mid
-                        else findImageIdFromImageSets' (mid + 1) end
-         in findImageIdFromImageSets' start end
-      lotteryN :: Int -> StdGen -> Int -> [ImageId]
-      lotteryN _ _ 0 = []
-      lotteryN numDatasets seed n =
-        let (randNum, seed') = randomR (0, 1) seed
-            imageId = findImageIdFromImageSets imageSets randNum
-         in imageId : lotteryN numDatasets seed' (n - 1)
-      imageIds = lotteryN numDatasets seed numDatasets
-      cocoImages' = map (\imageId -> (cocoMapCocoImage cocoMap) Map.! imageId) imageIds
-      newCoco =
-        Coco
-          { cocoImages = cocoImages',
-            cocoCategories = cocoCategories coco,
-            cocoAnnotations = [],
-            cocoLicenses = cocoLicenses coco,
-            cocoInfo = cocoInfo coco
-          }
-  writeCoco cocoOutputFile newCoco
-
 bashCompletion :: IO ()
 bashCompletion = do
-  -- Read from bash_completion.d/object-detection-dsl-exe and write to stdout
+  -- Read from bash_completion.d/risk-weaver-exe and write to stdout
   -- Inline the file content by tepmlate haskell
-  let file = $(embedFile "bash_completion.d/object-detection-dsl-exe")
+  let file = $(embedFile "bash_completion.d/risk-weaver-exe")
   BS.putStr file
 
 opts :: Parser CocoCommand
@@ -344,10 +198,8 @@ opts =
         <> command "bash-completion" (info (pure BashCompletion) (progDesc "bash completion"))
     )
 
-main :: IO ()
-main = do
-  -- cmd <- execParser $ info (opts <**> helper) (fullDesc <> progDesc "coco command line tool")
-  -- Output all commands list, when no command is given
+baseMain :: RiskCommands -> IO ()
+baseMain RiskCommands{..} = do
   cmd <- customExecParser (prefs showHelpOnEmpty) (info (helper <*> opts) (fullDesc <> progDesc "coco command line tool"))
 
   case cmd of

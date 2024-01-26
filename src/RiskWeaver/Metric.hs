@@ -4,12 +4,12 @@
 {-# LANGUAGE Strict #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Metric where
+module RiskWeaver.Metric where
 
 import Data.List (maximumBy, sort, sortBy)
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
-import Format.Coco
+import RiskWeaver.Format.Coco
 import GHC.Generics
 
 newtype IOU = IOU Double deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic)

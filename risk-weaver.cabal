@@ -11,7 +11,7 @@ cabal-version:      3.0
 --   http://haskell.org/cabal/users-guide/
 --
 -- The name of the package.
-name:               object-detection-dsl
+name:               risk-weaver
 
 -- The package version.
 -- See the Haskell package versioning policy (PVP) for standards
@@ -59,12 +59,14 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  Format.Coco
-                    , DSL.Core
-                    , DSL.BDD
-                    , Draw
-                    , Display
-                    , Metric
+    exposed-modules:  RiskWeaver.Format.Coco
+                    , RiskWeaver.DSL.Core
+                    , RiskWeaver.DSL.BDD
+                    , RiskWeaver.Draw
+                    , RiskWeaver.Display
+                    , RiskWeaver.Metric
+                    , RiskWeaver.Cmd.Core
+                    , RiskWeaver.Cmd.BDD
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -85,6 +87,9 @@ library
                     , inline-c
                     , sixel
                     , filepath
+                    , random
+                    , file-embed
+                    , optparse-applicative
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -92,7 +97,7 @@ library
     -- Base language which the package is written in.
     default-language: GHC2021
 
-executable object-detection-dsl-exe
+executable risk-weaver-exe
     -- Import common warning flags.
     import:           warnings
 
@@ -107,19 +112,7 @@ executable object-detection-dsl-exe
 
     -- Other library packages from which modules are imported.
     build-depends:    base == 4.*
-                    , object-detection-dsl
-                    , aeson
-                    , optparse-applicative
-                    , bytestring
-                    , text
-                    , file-embed
-                    , sixel
-                    , filepath
-                    , JuicyPixels
-                    , containers
-                    , transformers
-                    , vector
-                    , random
+                    , risk-weaver
 
     -- Directories containing source files.
     hs-source-dirs:   app
@@ -128,7 +121,7 @@ executable object-detection-dsl-exe
     default-language: GHC2021
 
     
-test-suite object-detection-dsl-test
+test-suite risk-weaver-test
     -- Import common warning flags.
     import:           warnings
 
@@ -153,4 +146,4 @@ test-suite object-detection-dsl-test
     -- Test dependencies.
     build-depends:
         base ^>=4.18.1.0,
-        object-detection-dsl
+        risk-weaver,
