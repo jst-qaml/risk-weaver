@@ -6,15 +6,9 @@
 
 module Metric where
 
-import Codec.Picture.Metadata (Value (Double))
-import Control.Monad (ap)
-import Data.Aeson
-import Data.ByteString.Lazy qualified as BS
 import Data.List (maximumBy, sort, sortBy)
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
-import Data.Text (Text)
-import Data.Text qualified as T
 import Format.Coco
 import GHC.Generics
 

@@ -95,21 +95,30 @@ instance BoundingBox BoundingBoxGT where
   classD v = v.cls
   idD v = v.idx
 
+  isFrontD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isFrontD dtBack dtFront =
     let intersection =
           (min (dtBack.x + dtBack.w) (dtFront.x + dtFront.w) - max dtBack.x dtFront.x)
             * (min (dtBack.y + dtBack.h) (dtFront.y + dtFront.h) - max dtBack.y dtFront.y)
      in (intersection / (dtFront.w * dtFront.h)) >= 0.99
 
+  isBackD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isBackD _ _ = undefined
 
+  isLeftD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isLeftD _ _ = undefined
+  isRightD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isRightD _ _ = undefined
+  isTopD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isTopD _ _ = undefined
+  isBottomD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isBottomD _ _ = undefined
+  isBackGroundD :: ClassD BoundingBoxGT -> Bool
   isBackGroundD Background = True
   isBackGroundD _ = False
+  detectD :: Env BoundingBoxGT -> Detection BoundingBoxGT -> Maybe BoundingBoxGT
   detectD _ _ = undefined
+  errorType :: Env BoundingBoxGT -> Detection BoundingBoxGT -> Maybe (ErrorType BoundingBoxGT)
   errorType _ _ = undefined
 
   sizeG v = v.w * v.h

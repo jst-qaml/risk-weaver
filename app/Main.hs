@@ -3,8 +3,6 @@
 
 module Main where
 
-import Codec.Picture.Metadata (Value (Double))
-import Control.Concurrent (yield)
 import Control.Monad
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import DSL.BDD qualified as DSL

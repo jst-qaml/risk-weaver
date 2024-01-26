@@ -1,4 +1,4 @@
-# Revision history for object-detection-dsl
+# Revision history for risk-weaver
 
 ## 0.1.0.0 -- YYYY-mm-dd
 
