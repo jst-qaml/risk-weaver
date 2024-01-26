@@ -1,0 +1,356 @@
+#! /usr/bin/env runghc
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+
+import Control.Monad
+import Control.Monad.Trans.Reader (ReaderT, ask, runReader, runReaderT)
+import Data.List (sortBy)
+import Data.List qualified as List
+import Data.Map (Map)
+import Data.Map qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
+import Data.Text qualified as T
+import Data.Vector (Vector)
+import Data.Vector qualified as Vector
+import RiskWeaver.Cmd.Core (RiskCommands(..), baseMain)
+import RiskWeaver.DSL.BDD qualified as BDD
+import RiskWeaver.DSL.Core
+import RiskWeaver.Format.Coco
+import RiskWeaver.Metric
+import System.Random
+import Text.Printf
+
+
+data BoundingBoxGT = BoundingBoxGT
+  { x :: Double,
+    y :: Double,
+    w :: Double,
+    h :: Double,
+    cls :: Class,
+    idx :: Int
+  }
+  deriving (Show, Eq)
+
+data BoundingBoxDT = BoundingBoxDT
+  { x :: Double,
+    y :: Double,
+    w :: Double,
+    h :: Double,
+    cls :: Class,
+    score :: Double,
+    idx :: Int
+  }
+  deriving (Show, Eq)
+
+data Class
+  = Background
+  | Pedestrian
+  | Rider
+  | Car
+  | Truck
+  | Bus
+  | Train
+  | Motorcycle
+  | Bicycle
+  deriving (Show, Eq)
+
+data FNError
+  = Boundary
+  | LowScore
+  | MissClass
+  | Occulusion
+  deriving (Show, Eq)
+
+instance BoundingBox BoundingBoxGT where
+  type Detection _ = BoundingBoxDT
+  type ClassG _ = Class
+  type ClassD _ = Class
+  data ErrorType _
+    = FalsePositive
+    | FalseNegative (Set FNError)
+    | TruePositive
+    | TrueNegative
+    deriving (Show, Eq)
+  type InterestArea _ = [(Double, Double)]
+  type InterestObject _ = BoundingBoxGT
+  data Env _ = MyEnv
+    { envGroundTruth :: Vector BoundingBoxGT,
+      envDetection :: Vector BoundingBoxDT,
+      envConfidenceScoreThresh :: Double,
+      envIoUThresh :: Double
+    }
+  type Idx _ = Int
+  type Risk _ = Double
+
+  riskE env = runReader (myRisk @BoundingBoxGT) env
+  interestArea :: Env BoundingBoxGT -> InterestArea BoundingBoxGT
+  interestArea _ = [(0, 1), (0.3, 0.6), (0.7, 0.6), (1, 1), (1, 2), (0, 2)]
+  interestObject _ = undefined
+  groundTruth env = envGroundTruth env
+  detection env = envDetection env
+  confidenceScoreThresh env = envConfidenceScoreThresh env
+  ioUThresh env = envIoUThresh env
+  scoreD v = v.score
+  sizeD v = v.w * v.h
+  classD v = v.cls
+  idD v = v.idx
+
+  isFrontD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
+  isFrontD dtBack dtFront =
+    let intersection =
+          (min (dtBack.x + dtBack.w) (dtFront.x + dtFront.w) - max dtBack.x dtFront.x)
+            * (min (dtBack.y + dtBack.h) (dtFront.y + dtFront.h) - max dtBack.y dtFront.y)
+     in (intersection / (dtFront.w * dtFront.h)) >= 0.99
+
+  isBackD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
+  isBackD _ _ = undefined
+
+  isLeftD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
+  isLeftD _ _ = undefined
+  isRightD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
+  isRightD _ _ = undefined
+  isTopD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
+  isTopD _ _ = undefined
+  isBottomD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
+  isBottomD _ _ = undefined
+  isBackGroundD :: ClassD BoundingBoxGT -> Bool
+  isBackGroundD Background = True
+  isBackGroundD _ = False
+  detectD :: Env BoundingBoxGT -> Detection BoundingBoxGT -> Maybe BoundingBoxGT
+  detectD _ _ = undefined
+  errorType :: Env BoundingBoxGT -> Detection BoundingBoxGT -> Maybe (ErrorType BoundingBoxGT)
+  errorType _ _ = undefined
+
+  sizeG v = v.w * v.h
+  classG v = v.cls
+  angle _ _ = undefined
+  idG v = v.idx
+  ioU g d =
+    let intersection =
+          (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
+            * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
+     in intersection / (g.w * g.h + d.w * d.h - intersection)
+  ioG g d =
+    let intersection =
+          (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
+            * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
+     in intersection / (g.w * g.h)
+  ioD g d =
+    let intersection =
+          (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
+            * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
+     in intersection / (d.w * d.h)
+  detectG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
+  detectG env gt =
+    let dts = detection env
+        dts' = filter (\dt -> scoreD @BoundingBoxGT dt > confidenceScoreThresh env) $ Vector.toList dts
+        dts'' = filter (\dt -> classD @BoundingBoxGT dt == classG @BoundingBoxGT gt) dts'
+        -- Get max IOU detection with ioUThresh
+        dts''' = filter (\(iou, _) -> iou > ioUThresh env) $ map (\dt -> (ioU gt dt, dt)) dts''
+     in case dts''' of
+          [] -> Nothing
+          dts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts
+
+  isInIeterestAreaD :: InterestArea BoundingBoxGT -> Detection BoundingBoxGT -> Bool
+  isInIeterestAreaD _ _ = undefined
+  isInIeterestAreaG _ _ = undefined
+
+  riskD _ _ = undefined
+  riskBB _ = undefined
+
+  confusionMatrixRecallBB _ = undefined
+  confusionMatrixAccuracyBB _ = undefined
+  confusionMatrixRecallBB' _ = undefined
+  confusionMatrixAccuracyBB' _ = undefined
+  errorGroupsBB _ = undefined
+
+myRisk :: forall a m. (Fractional (Risk a), Num (Risk a), BoundingBox a, Monad m) => ReaderT (Env a) m (Risk a)
+myRisk = do
+  env <- ask
+  loopG (+) 0 $ \(gt :: a) ->
+    case detectG env gt of
+      Nothing -> return 10
+      Just (obj :: Detection a) -> do
+        if ioU gt obj > ioUThresh env
+          then return 0.001
+          else
+            if ioG gt obj > ioUThresh env
+              then return 1
+              else return 5
+
+myRiskWithError :: forall a m. (Monoid [(Risk a, ErrorType a)], BoundingBox a, Monad m, a ~ BoundingBoxGT) => ReaderT (Env a) m [(Risk a, ErrorType a)]
+myRiskWithError = do
+  env <- ask
+  loopG (++) [] $ \(gt :: a) ->
+    case detectG env gt of
+      Nothing -> return [(10, FalseNegative Set.empty)]
+      Just (obj :: Detection a) -> do
+        if ioU gt obj > ioUThresh env
+          then return [(0, TruePositive)]
+          else
+            if ioG gt obj > ioUThresh env
+              then return [(1, FalseNegative Set.empty)]
+              else return [(5, FalseNegative Set.empty)]
+
+cocoCategoryToClass :: CocoMap -> CategoryId -> BDD.Class
+cocoCategoryToClass coco categoryId =
+  let cocoCategory = (cocoMapCocoCategory coco) Map.! categoryId
+   in case T.unpack (cocoCategoryName cocoCategory) of
+        "pedestrian" -> BDD.Pedestrian
+        "rider" -> BDD.Rider
+        "car" -> BDD.Car
+        "truck" -> BDD.Truck
+        "bus" -> BDD.Bus
+        "train" -> BDD.Train
+        "motorcycle" -> BDD.Motorcycle
+        "bicycle" -> BDD.Bicycle
+        _ -> BDD.Background
+
+cocoResultToVector :: CocoMap -> ImageId -> (Vector BDD.BoundingBoxGT, Vector BDD.BoundingBoxDT)
+cocoResultToVector coco imageId = (groundTruth, detection)
+  where
+    groundTruth =
+      Vector.fromList $
+        maybe
+          []
+          ( map
+              ( \CocoAnnotation {..} ->
+                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoAnnotationBbox
+                   in BDD.BoundingBoxGT
+                        { x = cocox,
+                          y = cocoy,
+                          w = cocow,
+                          h = cocoh,
+                          cls = cocoCategoryToClass coco cocoAnnotationCategory,
+                          idx = cocoAnnotationId
+                        }
+              )
+          )
+          (Map.lookup imageId (cocoMapCocoAnnotation coco))
+    detection =
+      Vector.fromList $
+        maybe
+          []
+          ( map
+              ( \CocoResult {..} ->
+                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoResultBbox
+                   in BDD.BoundingBoxDT
+                        { x = cocox,
+                          y = cocoy,
+                          w = cocow,
+                          h = cocoh,
+                          cls = cocoCategoryToClass coco cocoResultCategory,
+                          score = unScore cocoResultScore,
+                          idx = unImageId cocoResultImageId
+                        }
+              )
+          )
+          (Map.lookup imageId (cocoMapCocoResult coco))
+
+runRisk ::
+  CocoMap ->
+  IO [(ImageId, Double)]
+runRisk cocoMap = do
+  forM (cocoMapImageIds cocoMap) $ \imageId -> do
+    let (groundTruth, detection) = cocoResultToVector cocoMap imageId
+    let env =
+          BDD.MyEnv
+            { envGroundTruth = groundTruth,
+              envDetection = detection,
+              envConfidenceScoreThresh = 0.4,
+              envIoUThresh = 0.5
+            }
+    risk <- flip runReaderT env (BDD.myRisk @BDD.BoundingBoxGT)
+    return (imageId, risk)
+
+showRisk :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
+  let cocoMap =
+        let cocoMap' = toCocoMap coco cocoResults
+         in case mImageId of
+              Nothing -> cocoMap'
+              Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
+      iouThreshold' = case iouThreshold of
+        Nothing -> IOU 0.5
+        Just iouThreshold -> IOU iouThreshold
+      scoreThresh' = case scoreThresh of
+        Nothing -> Score 0.4
+        Just scoreThresh -> Score scoreThresh
+  risks <- runRisk cocoMap
+  putStrLn $ printf "%-12s %-12s %s" "#ImageId" "Filename" "Risk"
+  let sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare risk2 risk1) risks
+  forM_ sortedRisks $ \(imageId, risk) -> do
+    let cocoImage = (cocoMapCocoImage cocoMap) Map.! imageId
+    putStrLn $ printf "%-12d %-12s %.3f" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) risk
+
+generateRiskWeightedDataset :: Coco -> [CocoResult] -> FilePath -> Maybe Double -> Maybe Double -> IO ()
+generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreThresh = do
+  let cocoMap = toCocoMap coco cocoResults
+      iouThreshold' = case iouThreshold of
+        Nothing -> IOU 0.5
+        Just iouThreshold -> IOU iouThreshold
+      scoreThresh' = case scoreThresh of
+        Nothing -> Score 0.4
+        Just scoreThresh -> Score scoreThresh
+  risks <- runRisk cocoMap
+  let sumRisks = sum $ map snd risks
+      probabilitis = map (\(_, risk) -> risk / sumRisks) risks
+      accumulatedProbabilitis = scanl (+) 0 probabilitis
+      numDatasets = length $ cocoMapImageIds cocoMap
+      seed = mkStdGen 0
+
+  -- Generate dataset by probability.
+  -- The dataset's format is same as coco dataset.
+  -- Accumurate probability
+  -- Gen sorted list by accumulated probability with image id.
+  -- Lottery by random number
+  -- Get image id by lottery
+  -- Generate random number between 0 and 1
+  -- Find accumulated probability that is greater than random number
+  -- Get image id by accumulated probability
+
+  -- imageSets has accumulated probability and image id.
+  -- It uses binary search to find image id by random number.
+  let imageSets :: Vector (Double, ImageId)
+      imageSets = Vector.fromList $ zip accumulatedProbabilitis (cocoMapImageIds cocoMap)
+      findImageIdFromImageSets :: Vector (Double, ImageId) -> Double -> ImageId
+      findImageIdFromImageSets imageSets randomNum =
+        let (start, end) = (0, Vector.length imageSets - 1)
+            findImageIdFromImageSets' :: Int -> Int -> ImageId
+            findImageIdFromImageSets' start end =
+              let mid = (start + end) `div` 2
+                  (accumulatedProbability, imageId) = imageSets Vector.! mid
+               in if start == end
+                    then imageId
+                    else
+                      if accumulatedProbability > randomNum
+                        then findImageIdFromImageSets' start mid
+                        else findImageIdFromImageSets' (mid + 1) end
+         in findImageIdFromImageSets' start end
+      lotteryN :: Int -> StdGen -> Int -> [ImageId]
+      lotteryN _ _ 0 = []
+      lotteryN numDatasets seed n =
+        let (randNum, seed') = randomR (0, 1) seed
+            imageId = findImageIdFromImageSets imageSets randNum
+         in imageId : lotteryN numDatasets seed' (n - 1)
+      imageIds = lotteryN numDatasets seed numDatasets
+      cocoImages' = map (\imageId -> (cocoMapCocoImage cocoMap) Map.! imageId) imageIds
+      newCoco =
+        Coco
+          { cocoImages = cocoImages',
+            cocoCategories = cocoCategories coco,
+            cocoAnnotations = [],
+            cocoLicenses = cocoLicenses coco,
+            cocoInfo = cocoInfo coco
+          }
+  writeCoco cocoOutputFile newCoco
+
+main = baseMain RiskCommands {
+  showRisk = Main.showRisk,
+  generateRiskWeightedDataset = Main.generateRiskWeightedDataset
+}
