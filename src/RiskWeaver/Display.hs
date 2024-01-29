@@ -6,6 +6,7 @@ import Data.Map qualified as Map
 import Data.OSC1337 qualified as OSC
 import Data.Sixel qualified as Sixel
 import Data.Text qualified as T
+import Data.Maybe (fromMaybe)
 import RiskWeaver.Draw
 import RiskWeaver.Format.Coco
 import System.Environment (lookupEnv)
@@ -46,8 +47,8 @@ drawBoundingBox imageBin annotations categories = do
     drawString (T.unpack (cocoCategoryName (categories Map.! cocoAnnotationCategory annotation))) x y (255, 0, 0) (0, 0, 0) imageRGB8
   return imageRGB8
 
-drawDetectionBoundingBox :: DynamicImage -> [CocoResult] -> Map.Map CategoryId CocoCategory -> Maybe Double -> IO (Image PixelRGB8)
-drawDetectionBoundingBox imageBin annotations categories scoreThreshold = do
+drawDetectionBoundingBox :: Show a => DynamicImage -> [CocoResult] -> [a] -> Map.Map CategoryId CocoCategory -> Maybe Double -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -> IO (Image PixelRGB8)
+drawDetectionBoundingBox imageBin annotations risks categories scoreThreshold overlay = do
   let imageRGB8 = convertRGB8 imageBin
   forM_ annotations $ \annotation -> do
     let (CoCoBoundingBox (bx, by, bw, bh)) = cocoResultBbox annotation
@@ -95,8 +96,8 @@ showImage coco cocoFile imageFile enableBoundingBox = do
     else do
       putImage (Left imagePath)
 
-showDetectionImage :: Coco -> FilePath -> FilePath -> FilePath -> Maybe Double -> IO ()
-showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold = do
+showDetectionImage :: Coco -> FilePath -> FilePath -> FilePath -> Maybe Double -> Maybe (Image PixelRGB8 -> Int -> IO (Image PixelRGB8)) -> IO ()
+showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold overlay = do
   let cocoFileNameWithoutExtension = takeBaseName cocoFile
       imageDir = takeDirectory (takeDirectory cocoFile) </> cocoFileNameWithoutExtension </> "images"
       imagePath = imageDir </> imageFile
@@ -110,5 +111,5 @@ showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold = do
         Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read."
         Right imageBin -> do
           let categories = toCategoryMap coco
-          imageRGB8 <- drawDetectionBoundingBox imageBin (filter (\res -> cocoResultImageId res == cocoImageId image) cocoResult) categories scoreThreshold
-          putImage (Right imageRGB8)
+          drawDetectionBoundingBox imageBin (filter (\res -> cocoResultImageId res == cocoImageId image) cocoResult) ([] :: [Int]) categories scoreThreshold overlay
+            >>= putImage . Right

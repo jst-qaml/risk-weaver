@@ -221,7 +221,7 @@ baseMain RiskCommands{..} = do
       showImage coco cocoFile imageFile enableBoundingBox
     ShowDetectionImage cocoFile cocoResultFile imageFile scoreThreshold -> do
       coco <- readCoco cocoFile
-      showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold
+      showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold Nothing
     Evaluate cocoFile cocoResultFile iouThreshold scoreThreshold imageId -> do
       coco <- readCoco cocoFile
       cocoResult <- readCocoResult cocoResultFile

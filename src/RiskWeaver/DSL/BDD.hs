@@ -5,6 +5,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedLists #-}
+
 
 module RiskWeaver.DSL.BDD where
 
@@ -59,7 +61,7 @@ data FNError
   | LowScore
   | MissClass
   | Occulusion
-  deriving (Show, Eq)
+  deriving (Show, Ord, Eq)
 
 instance BoundingBox BoundingBoxGT where
   type Detection _ = BoundingBoxDT
@@ -178,16 +180,34 @@ myRisk = do
               then return 1
               else return 5
 
-myRiskWithError :: forall a m. (Monoid [(Risk a, ErrorType a)], BoundingBox a, Monad m, a ~ BoundingBoxGT) => ReaderT (Env a) m [(Risk a, ErrorType a)]
+myRiskWithError :: forall a m. (Monoid [(Risk a, ErrorType a)], BoundingBox a, Monad m, a ~ BoundingBoxGT) => ReaderT (Env a) m [(Idx a, Risk a, ErrorType a)]
 myRiskWithError = do
   env <- ask
   loopG (++) [] $ \(gt :: a) ->
-    case detectG env gt of
-      Nothing -> return [(10, FalseNegative Set.empty)]
-      Just (obj :: Detection a) -> do
-        if ioU gt obj > ioUThresh env
-          then return [(0, TruePositive)]
-          else
-            if ioG gt obj > ioUThresh env
-              then return [(1, FalseNegative Set.empty)]
-              else return [(5, FalseNegative Set.empty)]
+    case detectMaxIouG env gt of
+      Nothing -> return [(idG gt, 10, FalseNegative [])]
+      Just (dt :: Detection a) -> do
+        case (classD @BoundingBoxGT dt == classG @BoundingBoxGT gt,
+              scoreD @BoundingBoxGT dt > confidenceScoreThresh env,
+              ioU gt dt > ioUThresh env,
+              ioG gt dt > ioUThresh env
+             ) of
+          (False, False, False, True ) -> return [(idG gt, 10, FalseNegative [MissClass, LowScore, Occulusion])]
+          (False, False, True,  _    ) -> return [(idG gt, 5, FalseNegative [MissClass, LowScore])]
+          (False, True,  False, True ) -> return [(idG gt, 5, FalseNegative [MissClass, Occulusion])]
+          (False, True,  True,  _    ) -> return [(idG gt, 2, FalseNegative [MissClass])]
+          (True,  False, False, True ) -> return [(idG gt, 5, FalseNegative [LowScore, Occulusion])]
+          (True,  False, True,  _    ) -> return [(idG gt, 5, FalseNegative [LowScore])]
+          (True,  True,  False, True ) -> return [(idG gt, 2, FalseNegative [Occulusion])]
+          (True,  True,  True,  _    ) -> return [(idG gt, 0.001, TruePositive)]
+          (_,     _,     False, False )-> return [(idG gt, 10, FalseNegative [])]
+  where
+    detectMaxIouG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
+    detectMaxIouG env gt =
+      let dts = detection env
+          dts' = map (\dt -> (ioU gt dt, dt)) $ Vector.toList dts
+        in case dts' of
+            [] -> Nothing
+            dts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts
+
+
