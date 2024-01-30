@@ -16,7 +16,7 @@ import Data.Vector (Vector)
 -- | Bounding box type class of ground truth
 class BoundingBox a where
   -- | Detection type
-  type Detection a :: Type
+  data Detection a :: Type
   -- | Ground truth class type
   type ClassG a :: Type
   -- | Detection class type

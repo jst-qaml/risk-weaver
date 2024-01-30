@@ -1,11 +1,14 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+
 
 module RiskWeaver.Cmd.BDD where
 
 import Control.Monad
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import RiskWeaver.DSL.BDD qualified as BDD
+import RiskWeaver.DSL.Core qualified as Core
 import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
 import Data.List (sortBy)
@@ -92,6 +95,23 @@ runRisk cocoMap = do
     risk <- flip runReaderT env (BDD.myRisk @BDD.BoundingBoxGT)
     return (imageId, risk)
 
+runRiskWithError ::
+  a ~ BDD.BoundingBoxGT =>
+  CocoMap ->
+  IO [(ImageId, [BDD.BddRisk])]
+runRiskWithError cocoMap = do
+  forM (cocoMapImageIds cocoMap) $ \imageId -> do
+    let (groundTruth, detection) = cocoResultToVector cocoMap imageId
+    let env =
+          BDD.MyEnv
+            { envGroundTruth = groundTruth,
+              envDetection = detection,
+              envConfidenceScoreThresh = 0.4,
+              envIoUThresh = 0.5
+            }
+    risk <- flip runReaderT env (BDD.myRiskWithError @BDD.BoundingBoxGT)
+    return (imageId, risk)
+
 showRisk :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
 showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
   let cocoMap =
@@ -111,6 +131,28 @@ showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
   forM_ sortedRisks $ \(imageId, risk) -> do
     let cocoImage = (cocoMapCocoImage cocoMap) Map.! imageId
     putStrLn $ printf "%-12d %-12s %.3f" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) risk
+
+showRiskWithError :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+showRiskWithError coco cocoResults iouThreshold scoreThresh mImageId = do
+  let cocoMap =
+        let cocoMap' = toCocoMap coco cocoResults
+         in case mImageId of
+              Nothing -> cocoMap'
+              Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
+      iouThreshold' = case iouThreshold of
+        Nothing -> IOU 0.5
+        Just iouThreshold -> IOU iouThreshold
+      scoreThresh' = case scoreThresh of
+        Nothing -> Score 0.4
+        Just scoreThresh -> Score scoreThresh
+  risks <- runRiskWithError cocoMap :: IO [(ImageId, [BDD.BddRisk])]
+  putStrLn $ printf "%-12s %-12s %-12s %-12s %s" "#ImageId" "Filename" "Risk" "ErrorType"
+  let sum' riskWithErrors = sum $ map (\r -> r.risk) riskWithErrors
+      sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare (sum' risk2) (sum' risk1)) risks
+  forM_ sortedRisks $ \(imageId, risks) -> do
+    let cocoImage = (cocoMapCocoImage cocoMap) Map.! imageId
+    forM_ risks $ \bddRisk -> do
+      putStrLn $ printf "%-12d %-12s %.3f %-12s" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) bddRisk.risk (show bddRisk.riskType)
 
 generateRiskWeightedDataset :: Coco -> [CocoResult] -> FilePath -> Maybe Double -> Maybe Double -> IO ()
 generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreThresh = do
@@ -178,5 +220,6 @@ generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreTh
 bddCommand :: RiskCommands
 bddCommand = RiskCommands {
   showRisk = RiskWeaver.Cmd.BDD.showRisk,
+  showRiskWithError = RiskWeaver.Cmd.BDD.showRiskWithError,
   generateRiskWeightedDataset = RiskWeaver.Cmd.BDD.generateRiskWeightedDataset
 }

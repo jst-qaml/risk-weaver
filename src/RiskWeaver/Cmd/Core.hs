@@ -22,6 +22,8 @@ import RiskWeaver.Metric
 import Options.Applicative
 import System.Random
 import Text.Printf
+import Codec.Picture
+
 
 data CocoCommand
   = ListImages {cocoFile :: FilePath}
@@ -39,6 +41,12 @@ data CocoCommand
         imageFile :: FilePath,
         scoreThreshold :: Maybe Double
       }
+  | ShowDetectionImageWithRisks
+      { cocoFile :: FilePath,
+        cocoResultFile :: FilePath,
+        imageFile :: FilePath,
+        scoreThreshold :: Maybe Double
+      }
   | Evaluate
       { cocoFile :: FilePath,
         cocoResultFile :: FilePath,
@@ -46,14 +54,14 @@ data CocoCommand
         scoreThreshold :: Maybe Double,
         imageId :: Maybe Int
       }
-  | ShowFalseNegative
+  | ShowRisk
       { cocoFile :: FilePath,
         cocoResultFile :: FilePath,
         iouThreshold :: Maybe Double,
         scoreThreshold :: Maybe Double,
         imageId :: Maybe Int
       }
-  | ShowRisk
+  | ShowRiskWithError
       { cocoFile :: FilePath,
         cocoResultFile :: FilePath,
         iouThreshold :: Maybe Double,
@@ -73,7 +81,9 @@ data CocoCommand
 data RiskCommands = 
   RiskCommands
     { showRisk :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+    , showRiskWithError :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
     , generateRiskWeightedDataset :: Coco -> [CocoResult] -> FilePath -> Maybe Double -> Maybe Double -> IO ()
+    , showDetectionImageWithRisks :: Coco -> FilePath -> FilePath -> FilePath -> Maybe Double -> Maybe (Image PixelRGB8 -> Int -> IO (Image PixelRGB8)) -> IO ()
     }
 
 listImages :: Coco -> IO ()
@@ -192,8 +202,10 @@ opts =
         <> command "list-coco-result" (info (ListCocoResult <$> argument str (metavar "FILE")) (progDesc "list all coco result"))
         <> command "show-image" (info (ShowImage <$> argument str (metavar "FILE") <*> argument str (metavar "IMAGE_FILE") <*> switch (long "enable-bounding-box" <> short 'b' <> help "enable bounding box")) (progDesc "show image by sixel"))
         <> command "show-detection-image" (info (ShowDetectionImage <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image by sixel"))
+        <> command "show-detection-image-with-risks" (info (ShowDetectionImageWithRisks <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image with risks by sixel"))
         <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "evaluate coco result"))
         <> command "show-risk" (info (ShowRisk <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "show risk"))
+        <> command "show-risk-with-error" (info (ShowRiskWithError <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "show risk with error"))
         <> command "generate-risk-weighted-dataset" (info (GenerateRiskWeightedDataset <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "OUTPUT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "generate risk weighted dataset"))
         <> command "bash-completion" (info (pure BashCompletion) (progDesc "bash completion"))
     )
@@ -222,6 +234,9 @@ baseMain RiskCommands{..} = do
     ShowDetectionImage cocoFile cocoResultFile imageFile scoreThreshold -> do
       coco <- readCoco cocoFile
       showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold Nothing
+    ShowDetectionImageWithRisks cocoFile cocoResultFile imageFile scoreThreshold -> do
+      coco <- readCoco cocoFile
+      showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold Nothing -- (Just (showRiskWithError coco cocoResultFile Nothing Nothing Nothing))
     Evaluate cocoFile cocoResultFile iouThreshold scoreThreshold imageId -> do
       coco <- readCoco cocoFile
       cocoResult <- readCocoResult cocoResultFile
@@ -230,6 +245,10 @@ baseMain RiskCommands{..} = do
       coco <- readCoco cocoFile
       cocoResult <- readCocoResult cocoResultFile
       showRisk coco cocoResult iouThreshold scoreThreshold (fmap ImageId imageId)
+    ShowRiskWithError cocoFile cocoResultFile iouThreshold scoreThreshold imageId -> do
+      coco <- readCoco cocoFile
+      cocoResult <- readCocoResult cocoResultFile
+      showRiskWithError coco cocoResult iouThreshold scoreThreshold (fmap ImageId imageId)
     GenerateRiskWeightedDataset cocoFile cocoResultFile cocoOutputFile iouThreshold scoreThreshold -> do
       coco <- readCoco cocoFile
       cocoResult <- readCocoResult cocoResultFile
