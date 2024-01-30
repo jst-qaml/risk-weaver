@@ -1,14 +1,11 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-
 
 module RiskWeaver.Cmd.BDD where
 
 import Control.Monad
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
-import RiskWeaver.DSL.BDD qualified as BDD
-import RiskWeaver.DSL.Core qualified as Core
 import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
 import Data.List (sortBy)
@@ -16,13 +13,14 @@ import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Options.Applicative
+import RiskWeaver.Cmd.Core (RiskCommands (..))
+import RiskWeaver.DSL.BDD qualified as BDD
+import RiskWeaver.DSL.Core qualified as Core
 import RiskWeaver.Format.Coco
 import RiskWeaver.Metric
-
-import Options.Applicative
 import System.Random
 import Text.Printf
-import RiskWeaver.Cmd.Core (RiskCommands(..))
 
 cocoCategoryToClass :: CocoMap -> CategoryId -> BDD.Class
 cocoCategoryToClass coco categoryId =
@@ -96,7 +94,7 @@ runRisk cocoMap = do
     return (imageId, risk)
 
 runRiskWithError ::
-  a ~ BDD.BoundingBoxGT =>
+  (a ~ BDD.BoundingBoxGT) =>
   CocoMap ->
   IO [(ImageId, [BDD.BddRisk])]
 runRiskWithError cocoMap = do
@@ -146,7 +144,7 @@ showRiskWithError coco cocoResults iouThreshold scoreThresh mImageId = do
         Nothing -> Score 0.4
         Just scoreThresh -> Score scoreThresh
   risks <- runRiskWithError cocoMap :: IO [(ImageId, [BDD.BddRisk])]
-  putStrLn $ printf "%-12s %-12s %-12s %-12s %s" "#ImageId" "Filename" "Risk" "ErrorType"
+  putStrLn $ printf "%-12s %-12s %-12s %-12s" "#ImageId" "Filename" "Risk" "ErrorType"
   let sum' riskWithErrors = sum $ map (\r -> r.risk) riskWithErrors
       sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare (sum' risk2) (sum' risk1)) risks
   forM_ sortedRisks $ \(imageId, risks) -> do
@@ -216,10 +214,10 @@ generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreTh
           }
   writeCoco cocoOutputFile newCoco
 
-
 bddCommand :: RiskCommands
-bddCommand = RiskCommands {
-  showRisk = RiskWeaver.Cmd.BDD.showRisk,
-  showRiskWithError = RiskWeaver.Cmd.BDD.showRiskWithError,
-  generateRiskWeightedDataset = RiskWeaver.Cmd.BDD.generateRiskWeightedDataset
-}
+bddCommand =
+  RiskCommands
+    { showRisk = RiskWeaver.Cmd.BDD.showRisk,
+      showRiskWithError = RiskWeaver.Cmd.BDD.showRiskWithError,
+      generateRiskWeightedDataset = RiskWeaver.Cmd.BDD.generateRiskWeightedDataset
+    }

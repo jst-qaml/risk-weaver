@@ -47,7 +47,15 @@ drawBoundingBox imageBin annotations categories = do
     drawString (T.unpack (cocoCategoryName (categories Map.! cocoAnnotationCategory annotation))) x y (255, 0, 0) (0, 0, 0) imageRGB8
   return imageRGB8
 
-drawDetectionBoundingBox :: Show a => DynamicImage -> [CocoResult] -> [a] -> Map.Map CategoryId CocoCategory -> Maybe Double -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -> IO (Image PixelRGB8)
+drawDetectionBoundingBox
+ :: Show a
+ => DynamicImage -- ^ Image
+ -> [CocoResult] -- ^ A list of Coco result
+ -> [a] -- ^ A list of object property
+ -> Map.Map CategoryId CocoCategory -- ^ A map of category
+ -> Maybe Double -- ^ Score threshold
+ -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -- ^ Overlay function to draw object property
+ -> IO (Image PixelRGB8)
 drawDetectionBoundingBox imageBin annotations risks categories scoreThreshold overlay = do
   let imageRGB8 = convertRGB8 imageBin
   forM_ annotations $ \annotation -> do
