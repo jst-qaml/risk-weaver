@@ -104,8 +104,8 @@ showImage coco cocoFile imageFile enableBoundingBox = do
     else do
       putImage (Left imagePath)
 
-showDetectionImage :: Coco -> FilePath -> FilePath -> FilePath -> Maybe Double -> Maybe (Image PixelRGB8 -> Int -> IO (Image PixelRGB8)) -> IO ()
-showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold overlay = do
+showDetectionImage :: Show a => Coco -> FilePath -> FilePath -> FilePath -> Maybe Double -> [a] -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -> IO ()
+showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold properties overlay = do
   let cocoFileNameWithoutExtension = takeBaseName cocoFile
       imageDir = takeDirectory (takeDirectory cocoFile) </> cocoFileNameWithoutExtension </> "images"
       imagePath = imageDir </> imageFile
@@ -119,5 +119,5 @@ showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold overlay
         Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read."
         Right imageBin -> do
           let categories = toCategoryMap coco
-          drawDetectionBoundingBox imageBin (filter (\res -> cocoResultImageId res == cocoImageId image) cocoResult) ([] :: [Int]) categories scoreThreshold overlay
+          drawDetectionBoundingBox imageBin (filter (\res -> cocoResultImageId res == cocoImageId image) cocoResult) properties categories scoreThreshold overlay
             >>= putImage . Right
