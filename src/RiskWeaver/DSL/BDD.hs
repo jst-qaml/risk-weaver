@@ -72,7 +72,7 @@ instance BoundingBox BoundingBoxGT where
     | FalseNegative (Set SubErrorType)
     | TruePositive
     | TrueNegative
-    deriving (Show, Ord, Eq)
+    deriving (Ord, Eq)
   type InterestArea _ = [(Double, Double)]
   type InterestObject _ = BoundingBoxGT
   data Env _ = MyEnv
@@ -119,7 +119,14 @@ instance BoundingBox BoundingBoxGT where
   isBackGroundD Background = True
   isBackGroundD _ = False
   detectD :: Env BoundingBoxGT -> Detection BoundingBoxGT -> Maybe BoundingBoxGT
-  detectD _ _ = undefined
+  detectD env dt =
+    let gts = groundTruth env
+        gts'' = filter (\gt -> classD @BoundingBoxGT dt == classG @BoundingBoxGT gt) $ Vector.toList gts
+        -- Get max IOU detection with ioUThresh
+        gts''' = filter (\(iou, _) -> iou > ioUThresh env) $ map (\gt -> (ioU gt dt, gt)) gts''
+     in case gts''' of
+          [] -> Nothing
+          gts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts
   errorType :: Env BoundingBoxGT -> Detection BoundingBoxGT -> Maybe (ErrorType BoundingBoxGT)
   errorType _ _ = undefined
 
@@ -166,6 +173,12 @@ instance BoundingBox BoundingBoxGT where
   confusionMatrixAccuracyBB' _ = undefined
   errorGroupsBB _ = undefined
 
+instance Show (ErrorType BoundingBoxGT) where
+  show (FalsePositive suberrors) = "FP: " ++ foldl (\acc suberror -> acc ++ show suberror ++ ", ") "" (Set.toList suberrors)
+  show (FalseNegative suberrors) = "FN: " ++ foldl (\acc suberror -> acc ++ show suberror ++ ", ") "" (Set.toList suberrors)
+  show TruePositive = "TP"
+  show TrueNegative = "TN"
+
 myRisk :: forall a m. (Fractional (Risk a), Num (Risk a), BoundingBox a, Monad m) => ReaderT (Env a) m (Risk a)
 myRisk = do
   env <- ask
@@ -207,45 +220,52 @@ riskForGroundTruth :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddR
 riskForGroundTruth = do
   env <- ask
   loopG (++) [] $ \(gt :: a) ->
-    case detectMaxIouG env gt of
-      Nothing -> return [BddRisk { riskGt = Just (idG gt), riskDt = Nothing, risk = 10, riskType = FalseNegative [] }]
-      Just (dt :: Detection a) -> do
-        case (classD @BoundingBoxGT dt == classG @BoundingBoxGT gt,
-              scoreD @BoundingBoxGT dt > confidenceScoreThresh env,
-              ioU gt dt > ioUThresh env,
-              ioG gt dt > ioUThresh env
-             ) of
-          (False, False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 10, riskType = FalseNegative [MissClass, LowScore, Occulusion] }]
-          (False, False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [MissClass, LowScore] }]
-          (False, True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [MissClass, Occulusion] }]
-          (False, True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalseNegative [MissClass] }]
-          (True,  False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [LowScore, Occulusion] }]
-          (True,  False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [LowScore] }]
-          (True,  True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalseNegative [Occulusion] }]
-          (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
-          (_,     _,     False, False )-> return [BddRisk { riskGt = Just (idG gt), riskDt = Nothing, risk = 10, riskType = FalseNegative [] }]
+    case detectG env gt of
+      Just (dt :: Detection a) -> 
+        return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
+      Nothing -> do
+        case detectMaxIouG env gt of
+          Nothing -> return [BddRisk { riskGt = Just (idG gt), riskDt = Nothing, risk = 10, riskType = FalseNegative [] }]
+          Just (dt :: Detection a) -> do
+            case (classD @BoundingBoxGT dt == classG @BoundingBoxGT gt,
+                  scoreD @BoundingBoxGT dt > confidenceScoreThresh env,
+                  ioU gt dt > ioUThresh env,
+                  ioG gt dt > ioUThresh env
+                ) of
+              (False, False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 10, riskType = FalseNegative [MissClass, LowScore, Occulusion] }]
+              (False, False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [MissClass, LowScore] }]
+              (False, True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [MissClass, Occulusion] }]
+              (False, True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalseNegative [MissClass] }]
+              (True,  False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [LowScore, Occulusion] }]
+              (True,  False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [LowScore] }]
+              (True,  True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalseNegative [Occulusion] }]
+              (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
+              (_,     _,     False, False )-> return [BddRisk { riskGt = Just (idG gt), riskDt = Nothing, risk = 10, riskType = FalseNegative [] }]
 
 riskForDetection :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
 riskForDetection = do
   env <- ask
   loopD (++) [] $ \(dt :: Detection a) ->
-    case detectMaxIouD env dt of
-      Nothing -> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 5, riskType = FalsePositive []}]
-      Just (gt :: a) -> do
-        case (classD @BoundingBoxGT dt == classG @BoundingBoxGT gt,
-              scoreD @BoundingBoxGT dt > confidenceScoreThresh env,
-              ioU gt dt > ioUThresh env,
-              ioG gt dt > ioUThresh env
-             ) of
-          (False, False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 10, riskType = FalsePositive [MissClass, LowScore, Occulusion] }]
-          (False, False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [MissClass, LowScore] }]
-          (False, True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [MissClass, Occulusion] }]
-          (False, True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalsePositive [MissClass] }]
-          (True,  False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [LowScore, Occulusion] }]
-          (True,  False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [LowScore] }]
-          (True,  True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalsePositive [Occulusion] }]
-          (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
-          (_,     _,     False, False )-> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 10, riskType = FalsePositive [] }]
+    case detectD env dt of
+      Just (gt :: a) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
+      Nothing -> do
+        case detectMaxIouD env dt of
+          Nothing -> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 5, riskType = FalsePositive []}]
+          Just (gt :: a) -> do
+            case (classD @BoundingBoxGT dt == classG @BoundingBoxGT gt,
+                  scoreD @BoundingBoxGT dt > confidenceScoreThresh env,
+                  ioU gt dt > ioUThresh env,
+                  ioG gt dt > ioUThresh env
+                ) of
+              (False, False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 10, riskType = FalsePositive [MissClass, LowScore, Occulusion] }]
+              (False, False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [MissClass, LowScore] }]
+              (False, True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [MissClass, Occulusion] }]
+              (False, True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalsePositive [MissClass] }]
+              (True,  False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [LowScore, Occulusion] }]
+              (True,  False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [LowScore] }]
+              (True,  True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalsePositive [Occulusion] }]
+              (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
+              (_,     _,     False, False )-> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 10, riskType = FalsePositive [] }]
 
 myRiskWithError :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
 myRiskWithError = do
