@@ -306,10 +306,13 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
                     width = round bw
                     height = round bh
                     draw = do
-                      drawRect x y (x + width) (y + height) green groundTruthImage
-                      drawString (show category) x y green black groundTruthImage
-                      drawString (show risk) x (y+10) green black groundTruthImage
-                      drawString (show riskType) x (y+20) green black groundTruthImage
+                      let color = case riskType of
+                            BDD.TruePositive -> green
+                            _ -> red
+                      drawRect x y (x + width) (y + height) color groundTruthImage
+                      drawString (show category) x y color black groundTruthImage
+                      drawString (printf "%.2f" risk) x (y+10) color black groundTruthImage
+                      drawString (show riskType) x (y+20) color black groundTruthImage
                       -- Use printf format to show score
                       -- drawString (printf "%.2f" (unScore $ riskGt.score)) x (y + 10) green black imageRGB8
                 -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
@@ -326,11 +329,14 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
                     width = round bw
                     height = round bh
                     draw = do
-                      drawRect x y (x + width) (y + height) red detectionImage
-                      drawString (show category) x y red black detectionImage
-                      drawString (printf "%.2f" (annotation.score)) x (y + 10) red black detectionImage
-                      drawString (show risk) x (y+20) red black detectionImage
-                      drawString (show riskType) x (y+30) red black detectionImage
+                      let color = case riskType of
+                            BDD.TruePositive -> green
+                            _ -> red
+                      drawRect x y (x + width) (y + height) color detectionImage
+                      drawString (show category) x y color black detectionImage
+                      drawString (printf "%.2f" (annotation.score)) x (y + 10) color black detectionImage
+                      drawString (printf "%.2f" risk) x (y+20) color black detectionImage
+                      drawString (show riskType) x (y+30) color black detectionImage
                       -- Use printf format to show score
                       -- drawString (printf "%.2f" (unScore $ riskGt.score)) x (y + 10) red black imageRGB8
                 -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8

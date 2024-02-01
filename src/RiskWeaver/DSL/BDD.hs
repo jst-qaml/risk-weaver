@@ -257,15 +257,12 @@ riskForDetection = do
                   ioU gt dt > ioUThresh env,
                   ioG gt dt > ioUThresh env
                 ) of
-              (False, False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 10, riskType = FalsePositive [MissClass, LowScore, Occulusion] }]
-              (False, False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [MissClass, LowScore] }]
               (False, True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [MissClass, Occulusion] }]
               (False, True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalsePositive [MissClass] }]
-              (True,  False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [LowScore, Occulusion] }]
-              (True,  False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalsePositive [LowScore] }]
               (True,  True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalsePositive [Occulusion] }]
               (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
-              (_,     _,     False, False )-> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 10, riskType = FalsePositive [] }]
+              (_,     True,  False, False )-> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 10, riskType = FalsePositive [] }]
+              (_,     False, _    ,  _    )-> return []
 
 myRiskWithError :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
 myRiskWithError = do
