@@ -98,7 +98,7 @@ runRisk cocoMap = do
               envConfidenceScoreThresh = 0.4,
               envIoUThresh = 0.5
             }
-    risk <- flip runReaderT env (BDD.myRisk @BDD.BoundingBoxGT)
+    risk <- flip runReaderT env BDD.myRisk
     return (imageId, risk)
 
 cocoToEnv :: CocoMap -> ImageId -> Core.Env BDD.BoundingBoxGT
@@ -227,45 +227,10 @@ generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
             imageId = findImageIdFromImageSets imageSets randNum
          in imageId : lotteryN numDatasets seed' (n - 1)
       imageIds = lotteryN numDatasets seed numDatasets
-      cocoImages' = map (\imageId -> (cocoMapCocoImage cocoMap) Map.! imageId) imageIds
-      coco = cocoMapCoco cocoMap
-      newCoco =
-        Coco
-          { cocoImages = cocoImages',
-            cocoCategories = cocoCategories coco,
-            cocoAnnotations = [],
-            cocoLicenses = cocoLicenses coco,
-            cocoInfo = cocoInfo coco
-          }
+      newCoco = resampleCocoMapWithImageIds cocoMap imageIds
   writeCoco cocoOutputFile newCoco
 
-drawDetectionBoundingBox
- :: DynamicImage -- ^ Image
- -> [CocoResult] -- ^ A list of Coco result
- -> Map.Map CategoryId CocoCategory -- ^ A map of category
- -> Maybe Double -- ^ Score threshold
- -> IO (Image PixelRGB8)
-drawDetectionBoundingBox imageBin annotations categories scoreThreshold = do
-  let imageRGB8 = convertRGB8 imageBin
-  forM_ annotations $ \annotation -> do
-    let (CoCoBoundingBox (bx, by, bw, bh)) = cocoResultBbox annotation
-        x = round bx
-        y = round by
-        width = round bw
-        height = round bh
-        draw = do
-          drawRect x y (x + width) (y + height) red imageRGB8
-          drawString (T.unpack (cocoCategoryName (categories Map.! cocoResultCategory annotation))) x y red black imageRGB8
-          -- Use printf format to show score
-          drawString (printf "%.2f" (unScore $ cocoResultScore annotation)) x (y + 10) red black imageRGB8
-    -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
-    case scoreThreshold of
-      Nothing -> draw
-      Just scoreThreshold -> do
-        if cocoResultScore annotation >= Score scoreThreshold
-          then draw
-          else return ()
-  return imageRGB8
+
 
 green = (0, 255, 0)
 red = (255, 0, 0)
@@ -337,10 +302,6 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
                       drawString (printf "%.2f" (annotation.score)) x (y + 10) color black detectionImage
                       drawString (printf "%.2f" risk) x (y+20) color black detectionImage
                       drawString (show riskType) x (y+30) color black detectionImage
-                      -- Use printf format to show score
-                      -- drawString (printf "%.2f" (unScore $ riskGt.score)) x (y + 10) red black imageRGB8
-                -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
-                --draw
                 case scoreThreshold of
                   Nothing -> draw
                   Just scoreThreshold -> do
