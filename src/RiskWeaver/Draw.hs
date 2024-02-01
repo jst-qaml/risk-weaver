@@ -27,7 +27,9 @@ import Data.Int
 import Data.Vector.Storable qualified as V
 import Data.Word
 import Foreign.ForeignPtr qualified as F
+import GHC.ForeignPtr qualified as GF
 import Foreign.Ptr qualified as F
+import Foreign.Storable qualified as F
 import GHC.Exts (IsList (fromList))
 import Language.C.Inline qualified as C
 import System.IO.Unsafe
@@ -404,3 +406,195 @@ pixelFormat image = case image of
   I.ImageY16 _ -> Y16
   I.ImageYA16 _ -> YA16
   I.ImageY32 _ -> Y32
+
+
+-- allocates memory for a new image
+createImage :: Int -> Int -> IO (I.Image I.PixelRGB8)
+createImage w h = do
+    when (w < 0) $ error ("trying to createImage of negative dim: "++show w)
+    when (h < 0) $ error ("trying to createImage of negative dim: "++show h)
+    fp <- GF.mallocPlainForeignPtrBytes size
+    return $ I.Image w h (V.unsafeFromForeignPtr fp 0 size)
+  where
+    size = w * h * 3
+
+cloneImage :: I.Image I.PixelRGB8 -> IO (I.Image I.PixelRGB8)
+cloneImage input = do
+  let (I.Image w h vec) = input
+      (org_fptr, len) = V.unsafeToForeignPtr0 vec
+  newImage <- createImage w h
+  let (I.Image w h dst_vec) = newImage
+      (dst_fptr, dst_len) = V.unsafeToForeignPtr0 dst_vec
+  F.withForeignPtr org_fptr $ \ptr1 -> F.withForeignPtr dst_fptr $ \ptr2 -> do
+    let src = F.castPtr ptr1
+        dst = F.castPtr ptr2
+        iw = fromIntegral w
+        ih = fromIntegral h
+        ichannel = 3
+    [C.block| void {
+        uint8_t* src = $(uint8_t* src);
+        uint8_t* dst = $(uint8_t* dst);
+        int w = $(int iw);
+        int h = $(int ih);
+        int channel = $(int ichannel);
+        for(int y=0;y<h;y++){
+          for(int x=0;x<w;x++){
+            for(int c=0;c<channel;c++){
+              dst[(y*w+x)*channel+c] = src[(y*w+x)*channel+c];
+            }
+          }
+        }
+    } |]
+    return newImage
+
+pasteImage :: I.Image I.PixelRGB8 -> Int -> Int -> I.Image I.PixelRGB8 -> IO ()
+pasteImage input offsetx offsety destination = do
+  let (I.Image w h vec) = input
+      (org_fptr, len) = V.unsafeToForeignPtr0 vec
+      (I.Image dst_w dst_h dst_vec) = destination
+      (dst_fptr, dst_len) = V.unsafeToForeignPtr0 dst_vec
+  F.withForeignPtr org_fptr $ \ptr1 -> F.withForeignPtr dst_fptr $ \ptr2 -> do
+    let src = F.castPtr ptr1
+        dst = F.castPtr ptr2
+        iw = fromIntegral w
+        ih = fromIntegral h
+        iorg_w = fromIntegral dst_w
+        iorg_h = fromIntegral dst_h
+        ichannel = 3
+        ioffsetx = fromIntegral offsetx
+        ioffsety = fromIntegral offsety
+    [C.block| void {
+        uint8_t* src = $(uint8_t* src);
+        uint8_t* dst = $(uint8_t* dst);
+        int w = $(int iw);
+        int h = $(int ih);
+        int ow = $(int iorg_w);
+        int oh = $(int iorg_h);
+        int channel = $(int ichannel);
+        int offsetx = $(int ioffsetx);
+        int offsety = $(int ioffsety);
+        for(int y=0;y<h;y++){
+          for(int x=0;x<w;x++){
+            for(int c=0;c<channel;c++){
+              int sy = y + offsety;
+              int sx = x + offsetx;
+              if(sx >= 0 && sx < ow &&
+                 sy >= 0 && sy < oh){
+                 dst[(sy*ow+sx)*channel+c] = src[(y*w+x)*channel+c];
+              }
+            }
+          }
+        }
+    } |]
+
+concatImagesH :: [I.Image I.PixelRGB8] -> IO (I.Image I.PixelRGB8)
+concatImagesH [] = error "concatImagesH: empty list"
+concatImagesH (x:[]) = return x
+concatImagesH (x:y:xs) = do
+  newImage <- concatImageByHorizontal x y
+  concatImagesH (newImage:xs)
+
+concatImagesV :: [I.Image I.PixelRGB8] -> IO (I.Image I.PixelRGB8)
+concatImagesV [] = error "concatImagesH: empty list"
+concatImagesV (x:[]) = return x
+concatImagesV (x:y:xs) = do
+  newImage <- concatImageByVertical x y
+  concatImagesH (newImage:xs)
+
+concatImageByHorizontal :: I.Image I.PixelRGB8 -> I.Image I.PixelRGB8 -> IO (I.Image I.PixelRGB8)
+concatImageByHorizontal left right = do
+  let (I.Image lw lh lvec) = left
+      (lfptr, llen) = V.unsafeToForeignPtr0 lvec
+      (I.Image rw rh rvec) = right
+      (rfptr, rlen) = V.unsafeToForeignPtr0 rvec
+  newImage <- createImage (lw + rw) (P.max lh rh)
+  let (I.Image w h dst_vec) = newImage
+      (dst_fptr, dst_len) = V.unsafeToForeignPtr0 dst_vec
+  F.withForeignPtr lfptr $ \lptr -> F.withForeignPtr rfptr $ \rptr -> F.withForeignPtr dst_fptr $ \dptr -> do
+    let lsrc = F.castPtr lptr
+        rsrc = F.castPtr rptr
+        dst = F.castPtr dptr
+        iw = fromIntegral w
+        ih = fromIntegral h
+        ilw = fromIntegral lw
+        ilh = fromIntegral lh
+        irw = fromIntegral rw
+        irh = fromIntegral rh
+        ichannel = 3
+    [C.block| void {
+        uint8_t* lsrc = $(uint8_t* lsrc);
+        uint8_t* rsrc = $(uint8_t* rsrc);
+        uint8_t* dst = $(uint8_t* dst);
+        int w = $(int iw);
+        int h = $(int ih);
+        int lw = $(int ilw);
+        int lh = $(int ilh);
+        int rw = $(int irw);
+        int rh = $(int irh);
+        int channel = $(int ichannel);
+        for(int y=0;y<h;y++){
+          for(int x=0;x<w;x++){
+            for(int c=0;c<channel;c++){
+              if(x < lw){
+                dst[(y*w+x)*channel+c] = lsrc[(y*lw+x)*channel+c];
+              } else {
+                dst[(y*w+x)*channel+c] = rsrc[(y*rw+(x-lw))*channel+c];
+              }
+            }
+          }
+        }
+    } |]
+    return newImage
+
+concatImageByVertical :: I.Image I.PixelRGB8 -> I.Image I.PixelRGB8 -> IO (I.Image I.PixelRGB8)
+concatImageByVertical top bottom = do
+  let (I.Image tw th tvec) = top
+      (tfptr, tlen) = V.unsafeToForeignPtr0 tvec
+      (I.Image bw bh bvec) = bottom
+      (bfptr, blen) = V.unsafeToForeignPtr0 bvec
+  newImage <- createImage (P.max tw bw) (th + bh)
+  let (I.Image w h dst_vec) = newImage
+      (dst_fptr, dst_len) = V.unsafeToForeignPtr0 dst_vec
+  F.withForeignPtr tfptr $ \tptr -> F.withForeignPtr bfptr $ \bptr -> F.withForeignPtr dst_fptr $ \dptr -> do
+    let tsrc = F.castPtr tptr
+        bsrc = F.castPtr bptr
+        dst = F.castPtr dptr
+        iw = fromIntegral w
+        ih = fromIntegral h
+        itw = fromIntegral tw
+        ith = fromIntegral th
+        ibw = fromIntegral bw
+        ibh = fromIntegral bh
+        ichannel = 3
+    [C.block| void {
+        uint8_t* tsrc = $(uint8_t* tsrc);
+        uint8_t* bsrc = $(uint8_t* bsrc);
+        uint8_t* dst = $(uint8_t* dst);
+        int w = $(int iw);
+        int h = $(int ih);
+        int tw = $(int itw);
+        int th = $(int ith);
+        int bw = $(int ibw);
+        int bh = $(int ibh);
+        int channel = $(int ichannel);
+        for(int y=0;y<h;y++){
+          for(int x=0;x<w;x++){
+            for(int c=0;c<channel;c++){
+              if(y < th){
+                dst[(y*w+x)*channel+c] = tsrc[(y*tw+x)*channel+c];
+              } else {
+                dst[(y*w+x)*channel+c] = bsrc[((y-th)*bw+x)*channel+c];
+              }
+            }
+          }
+        }
+    } |]
+    return newImage
+
+concatImages2x2 :: I.Image I.PixelRGB8 -> I.Image I.PixelRGB8 -> I.Image I.PixelRGB8 -> I.Image I.PixelRGB8 -> IO (I.Image I.PixelRGB8)
+concatImages2x2 topLeft topRight bottomLeft bottomRight = do
+  top <- concatImageByHorizontal topLeft topRight
+  bottom <- concatImageByHorizontal bottomLeft bottomRight
+  concatImageByVertical top bottom
+
+

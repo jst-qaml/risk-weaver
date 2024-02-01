@@ -188,10 +188,25 @@ data BddRisk =
     , riskDt :: Maybe (Idx BoundingBoxGT)
     } deriving (Show, Ord, Eq)
 
-myRiskWithError :: forall a m. (Monoid [(Risk a, ErrorType a)], BoundingBox a, Monad m, a ~ BoundingBoxGT) => ReaderT (Env a) m [BddRisk]
-myRiskWithError = do
+detectMaxIouG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
+detectMaxIouG env gt =
+  let dts = detection env
+      dts' = map (\dt -> (ioU gt dt, dt)) $ Vector.toList dts
+    in case dts' of
+        [] -> Nothing
+        dts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts
+detectMaxIouD :: Env BoundingBoxGT -> (Detection BoundingBoxGT) -> Maybe BoundingBoxGT
+detectMaxIouD env dt =
+  let gts = groundTruth env
+      gts' = map (\gt -> (ioU gt dt, gt)) $ Vector.toList gts
+    in case gts' of
+        [] -> Nothing
+        gts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts
+
+riskForGroundTruth :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
+riskForGroundTruth = do
   env <- ask
-  riskG <- loopG (++) [] $ \(gt :: a) ->
+  loopG (++) [] $ \(gt :: a) ->
     case detectMaxIouG env gt of
       Nothing -> return [BddRisk { riskGt = Just (idG gt), riskDt = Nothing, risk = 10, riskType = FalseNegative [] }]
       Just (dt :: Detection a) -> do
@@ -209,7 +224,11 @@ myRiskWithError = do
           (True,  True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalseNegative [Occulusion] }]
           (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
           (_,     _,     False, False )-> return [BddRisk { riskGt = Just (idG gt), riskDt = Nothing, risk = 10, riskType = FalseNegative [] }]
-  riskD <- loopD (++) [] $ \(dt :: Detection a) ->
+
+riskForDetection :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
+riskForDetection = do
+  env <- ask
+  loopD (++) [] $ \(dt :: Detection a) ->
     case detectMaxIouD env dt of
       Nothing -> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 5, riskType = FalsePositive []}]
       Just (gt :: a) -> do
@@ -227,20 +246,10 @@ myRiskWithError = do
           (True,  True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalsePositive [Occulusion] }]
           (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
           (_,     _,     False, False )-> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 10, riskType = FalsePositive [] }]
+
+myRiskWithError :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
+myRiskWithError = do
+  riskG <- riskForGroundTruth
+  riskD <- riskForDetection
   return $ riskG <> riskD
-  where
-    detectMaxIouG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
-    detectMaxIouG env gt =
-      let dts = detection env
-          dts' = map (\dt -> (ioU gt dt, dt)) $ Vector.toList dts
-        in case dts' of
-            [] -> Nothing
-            dts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts
-    detectMaxIouD :: Env BoundingBoxGT -> (Detection BoundingBoxGT) -> Maybe BoundingBoxGT
-    detectMaxIouD env dt =
-      let gts = groundTruth env
-          gts' = map (\gt -> (ioU gt dt, gt)) $ Vector.toList gts
-        in case gts' of
-            [] -> Nothing
-            gts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts
 

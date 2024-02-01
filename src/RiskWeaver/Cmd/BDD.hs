@@ -1,11 +1,12 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DataKinds #-}
 
 module RiskWeaver.Cmd.BDD where
 
 import Control.Monad
-import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, runReader)
 import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
 import Data.List (sortBy)
@@ -21,6 +22,11 @@ import RiskWeaver.Format.Coco
 import RiskWeaver.Metric
 import System.Random
 import Text.Printf
+import Codec.Picture
+import RiskWeaver.Draw
+import RiskWeaver.Display (putImage)
+import System.FilePath (takeBaseName, takeDirectory, (</>))
+
 
 cocoCategoryToClass :: CocoMap -> CategoryId -> BDD.Class
 cocoCategoryToClass coco categoryId =
@@ -44,7 +50,7 @@ cocoResultToVector coco imageId = (groundTruth, detection)
         maybe
           []
           ( map
-              ( \CocoAnnotation {..} ->
+              ( \(index, CocoAnnotation {..}) ->
                   let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoAnnotationBbox
                    in BDD.BoundingBoxGT
                         { x = cocox,
@@ -52,9 +58,10 @@ cocoResultToVector coco imageId = (groundTruth, detection)
                           w = cocow,
                           h = cocoh,
                           cls = cocoCategoryToClass coco cocoAnnotationCategory,
-                          idx = cocoAnnotationId
+                          idx = index -- cocoAnnotationId
                         }
               )
+              . zip [0..]
           )
           (Map.lookup imageId (cocoMapCocoAnnotation coco))
     detection =
@@ -62,7 +69,7 @@ cocoResultToVector coco imageId = (groundTruth, detection)
         maybe
           []
           ( map
-              ( \CocoResult {..} ->
+              ( \(index, CocoResult {..}) ->
                   let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoResultBbox
                    in BDD.BoundingBoxDT
                         { x = cocox,
@@ -71,9 +78,10 @@ cocoResultToVector coco imageId = (groundTruth, detection)
                           h = cocoh,
                           cls = cocoCategoryToClass coco cocoResultCategory,
                           score = unScore cocoResultScore,
-                          idx = unImageId cocoResultImageId
+                          idx = index
                         }
               )
+              . zip [0..]
           )
           (Map.lookup imageId (cocoMapCocoResult coco))
 
@@ -93,31 +101,27 @@ runRisk cocoMap = do
     risk <- flip runReaderT env (BDD.myRisk @BDD.BoundingBoxGT)
     return (imageId, risk)
 
-runRiskWithError ::
-  (a ~ BDD.BoundingBoxGT) =>
-  CocoMap ->
-  IO [(ImageId, [BDD.BddRisk])]
-runRiskWithError cocoMap = do
-  forM (cocoMapImageIds cocoMap) $ \imageId -> do
-    let (groundTruth, detection) = cocoResultToVector cocoMap imageId
-    let env =
-          BDD.MyEnv
-            { envGroundTruth = groundTruth,
-              envDetection = detection,
-              envConfidenceScoreThresh = 0.4,
-              envIoUThresh = 0.5
-            }
-    risk <- flip runReaderT env (BDD.myRiskWithError @BDD.BoundingBoxGT)
-    return (imageId, risk)
+cocoToEnv :: CocoMap -> ImageId -> Core.Env BDD.BoundingBoxGT
+cocoToEnv cocoMap imageId =
+  let (groundTruth, detection) = cocoResultToVector cocoMap imageId
+   in BDD.MyEnv
+        { envGroundTruth = groundTruth,
+          envDetection = detection,
+          envConfidenceScoreThresh = 0.4,
+          envIoUThresh = 0.5
+        }
 
-showRisk :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
-showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
-  let cocoMap =
-        let cocoMap' = toCocoMap coco cocoResults
-         in case mImageId of
-              Nothing -> cocoMap'
-              Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
-      iouThreshold' = case iouThreshold of
+getRisk :: Core.Env BDD.BoundingBoxGT -> [BDD.BddRisk]
+getRisk env = runReader BDD.myRiskWithError env
+
+runRiskWithError :: CocoMap -> [(ImageId, [BDD.BddRisk])]
+runRiskWithError cocoMap =
+  flip map (cocoMapImageIds cocoMap) $ \imageId -> (imageId, getRisk (cocoToEnv cocoMap imageId))
+
+
+showRisk :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+showRisk cocoMap iouThreshold scoreThresh mImageId = do
+  let iouThreshold' = case iouThreshold of
         Nothing -> IOU 0.5
         Just iouThreshold -> IOU iouThreshold
       scoreThresh' = case scoreThresh of
@@ -130,20 +134,15 @@ showRisk coco cocoResults iouThreshold scoreThresh mImageId = do
     let cocoImage = (cocoMapCocoImage cocoMap) Map.! imageId
     putStrLn $ printf "%-12d %-12s %.3f" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) risk
 
-showRiskWithError :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
-showRiskWithError coco cocoResults iouThreshold scoreThresh mImageId = do
-  let cocoMap =
-        let cocoMap' = toCocoMap coco cocoResults
-         in case mImageId of
-              Nothing -> cocoMap'
-              Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
-      iouThreshold' = case iouThreshold of
+showRiskWithError :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+showRiskWithError cocoMap iouThreshold scoreThresh mImageId = do
+  let iouThreshold' = case iouThreshold of
         Nothing -> IOU 0.5
         Just iouThreshold -> IOU iouThreshold
       scoreThresh' = case scoreThresh of
         Nothing -> Score 0.4
         Just scoreThresh -> Score scoreThresh
-  risks <- runRiskWithError cocoMap :: IO [(ImageId, [BDD.BddRisk])]
+      risks = runRiskWithError cocoMap :: [(ImageId, [BDD.BddRisk])]
   putStrLn $ printf "%-12s %-12s %-12s %-12s" "#ImageId" "Filename" "Risk" "ErrorType"
   let sum' riskWithErrors = sum $ map (\r -> r.risk) riskWithErrors
       sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare (sum' risk2) (sum' risk1)) risks
@@ -152,10 +151,35 @@ showRiskWithError coco cocoResults iouThreshold scoreThresh mImageId = do
     forM_ risks $ \bddRisk -> do
       putStrLn $ printf "%-12d %-12s %.3f %-12s" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) bddRisk.risk (show bddRisk.riskType)
 
-generateRiskWeightedDataset :: Coco -> [CocoResult] -> FilePath -> Maybe Double -> Maybe Double -> IO ()
-generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreThresh = do
-  let cocoMap = toCocoMap coco cocoResults
-      iouThreshold' = case iouThreshold of
+resampleCocoMapWithImageIds :: CocoMap -> [ImageId] -> Coco
+resampleCocoMapWithImageIds cocoMap imageIds =
+  let zipedImageIds = zip [1 ..] imageIds
+      newImageIds = (ImageId . fst) <$> zipedImageIds
+      imageIdsMap = Map.fromList zipedImageIds
+      cocoImages' = map (\imageId -> 
+        let orgImageId = imageIdsMap Map.! (unImageId imageId)
+            img = (cocoMapCocoImage cocoMap) Map.! orgImageId
+        in img { cocoImageId = imageId}
+        ) newImageIds
+      cocoAnnotations' = 
+        let annotations'= concat $ flip map newImageIds $ \imageId ->
+              let orgImageId = imageIdsMap Map.! (unImageId imageId)
+                  annotations = Map.findWithDefault [] orgImageId (cocoMapCocoAnnotation cocoMap)
+                  newAnnotations = map (\annotation -> annotation { cocoAnnotationImageId = imageId }) annotations
+              in newAnnotations
+            zippedAnnotations = zip [1 ..] annotations'
+            alignedAnnotations = map (\(newId, annotation) -> annotation { cocoAnnotationId = newId }) zippedAnnotations
+        in alignedAnnotations
+      newCoco =
+        (cocoMapCoco cocoMap)
+          { cocoImages = cocoImages',
+            cocoAnnotations = cocoAnnotations'
+          }
+   in newCoco
+
+generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
+generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
+  let iouThreshold' = case iouThreshold of
         Nothing -> IOU 0.5
         Just iouThreshold -> IOU iouThreshold
       scoreThresh' = case scoreThresh of
@@ -204,6 +228,7 @@ generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreTh
          in imageId : lotteryN numDatasets seed' (n - 1)
       imageIds = lotteryN numDatasets seed numDatasets
       cocoImages' = map (\imageId -> (cocoMapCocoImage cocoMap) Map.! imageId) imageIds
+      coco = cocoMapCoco cocoMap
       newCoco =
         Coco
           { cocoImages = cocoImages',
@@ -214,10 +239,118 @@ generateRiskWeightedDataset coco cocoResults cocoOutputFile iouThreshold scoreTh
           }
   writeCoco cocoOutputFile newCoco
 
+drawDetectionBoundingBox
+ :: DynamicImage -- ^ Image
+ -> [CocoResult] -- ^ A list of Coco result
+ -> Map.Map CategoryId CocoCategory -- ^ A map of category
+ -> Maybe Double -- ^ Score threshold
+ -> IO (Image PixelRGB8)
+drawDetectionBoundingBox imageBin annotations categories scoreThreshold = do
+  let imageRGB8 = convertRGB8 imageBin
+  forM_ annotations $ \annotation -> do
+    let (CoCoBoundingBox (bx, by, bw, bh)) = cocoResultBbox annotation
+        x = round bx
+        y = round by
+        width = round bw
+        height = round bh
+        draw = do
+          drawRect x y (x + width) (y + height) red imageRGB8
+          drawString (T.unpack (cocoCategoryName (categories Map.! cocoResultCategory annotation))) x y red black imageRGB8
+          -- Use printf format to show score
+          drawString (printf "%.2f" (unScore $ cocoResultScore annotation)) x (y + 10) red black imageRGB8
+    -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
+    case scoreThreshold of
+      Nothing -> draw
+      Just scoreThreshold -> do
+        if cocoResultScore annotation >= Score scoreThreshold
+          then draw
+          else return ()
+  return imageRGB8
+
+green = (0, 255, 0)
+red = (255, 0, 0)
+black = (0, 0, 0)
+
+
+showDetectionImage :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
+showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
+  let imageDir = getImageDir cocoMap
+      imagePath = imageDir </> imageFile
+  let image' = getCocoResult cocoMap imageFile
+  case image' of
+    Nothing -> putStrLn $ "Image file " ++ imageFile ++ " is not found."
+    Just (image, cocoResults) -> do
+      imageBin' <- readImage imagePath
+      let env = cocoToEnv cocoMap (cocoImageId image)
+          riskG = runReader BDD.riskForGroundTruth env
+          riskD = runReader BDD.riskForDetection env
+      forM_ riskG $ \riskg -> do
+        putStrLn $ show riskg
+      forM_ riskD $ \riskd -> do
+        putStrLn $ show riskd
+      case imageBin' of
+        Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read."
+        Right imageBin -> do
+          let imageRGB8 = convertRGB8 imageBin
+          groundTruthImage <- cloneImage imageRGB8
+          detectionImage <- cloneImage imageRGB8
+          forM_ riskG $ \BDD.BddRisk{..} -> do
+            case riskGt of
+              Nothing -> return ()
+              Just riskGt -> do
+                let annotation = env.envGroundTruth Vector.! riskGt
+                    (bx, by, bw, bh) = (annotation.x, annotation.y, annotation.w, annotation.h)
+                    category = annotation.cls
+                    x = round bx
+                    y = round by
+                    width = round bw
+                    height = round bh
+                    draw = do
+                      drawRect x y (x + width) (y + height) green groundTruthImage
+                      drawString (show category) x y green black groundTruthImage
+                      drawString (show risk) x (y+10) green black groundTruthImage
+                      drawString (show riskType) x (y+20) green black groundTruthImage
+                      -- Use printf format to show score
+                      -- drawString (printf "%.2f" (unScore $ riskGt.score)) x (y + 10) green black imageRGB8
+                -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
+                draw         
+          forM_ riskD $ \BDD.BddRisk{..} -> do
+            case riskDt of
+              Nothing -> return ()
+              Just riskDt -> do
+                let annotation = env.envDetection Vector.! riskDt
+                    (bx, by, bw, bh) = (annotation.x, annotation.y, annotation.w, annotation.h)
+                    category = annotation.cls
+                    x = round bx
+                    y = round by
+                    width = round bw
+                    height = round bh
+                    draw = do
+                      drawRect x y (x + width) (y + height) red detectionImage
+                      drawString (show category) x y red black detectionImage
+                      drawString (printf "%.2f" (annotation.score)) x (y + 10) red black detectionImage
+                      drawString (show risk) x (y+20) red black detectionImage
+                      drawString (show riskType) x (y+30) red black detectionImage
+                      -- Use printf format to show score
+                      -- drawString (printf "%.2f" (unScore $ riskGt.score)) x (y + 10) red black imageRGB8
+                -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
+                --draw
+                case scoreThreshold of
+                  Nothing -> draw
+                  Just scoreThreshold -> do
+                    if annotation.score >= scoreThreshold
+                      then draw
+                      else return ()
+          concatImage <- concatImageByHorizontal groundTruthImage detectionImage
+          let resizedImage = resizeRGB8 groundTruthImage.imageWidth groundTruthImage.imageHeight True concatImage
+          putImage (Right concatImage)
+          
+
 bddCommand :: RiskCommands
 bddCommand =
   RiskCommands
     { showRisk = RiskWeaver.Cmd.BDD.showRisk,
       showRiskWithError = RiskWeaver.Cmd.BDD.showRiskWithError,
-      generateRiskWeightedDataset = RiskWeaver.Cmd.BDD.generateRiskWeightedDataset
+      generateRiskWeightedDataset = RiskWeaver.Cmd.BDD.generateRiskWeightedDataset,
+      showDetectionImage = RiskWeaver.Cmd.BDD.showDetectionImage
     }

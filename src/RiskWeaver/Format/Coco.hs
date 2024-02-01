@@ -20,6 +20,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics
+import System.FilePath (takeBaseName, takeDirectory, (</>))
 
 -- import Debug.Trace (trace)
 -- myTrace :: Show a => String -> a -> a
@@ -317,12 +318,37 @@ data CocoMap = CocoMap
     cocoMapCocoResult :: Map.Map ImageId [CocoResult],
     cocoMapFilepath :: Map.Map ImageId FilePath,
     cocoMapImageIds :: [ImageId],
-    cocoMapCategoryIds :: [CategoryId]
+    cocoMapCategoryIds :: [CategoryId],
+    cocoMapCoco :: Coco,
+    cocoMapCocoFile :: FilePath
   }
   deriving (Show, Eq, Generic)
 
-toCocoMap :: Coco -> [CocoResult] -> CocoMap
-toCocoMap coco cocoResult =
+getImageDir :: CocoMap -> FilePath
+getImageDir cocoMap =
+  let cocoFileNameWithoutExtension = takeBaseName $ cocoMapCocoFile cocoMap
+      imageDir = takeDirectory (takeDirectory $ cocoMapCocoFile cocoMap) </> cocoFileNameWithoutExtension </> "images"
+  in imageDir
+
+class CocoMapable a where
+  getCocoResult :: CocoMap -> a -> Maybe (CocoImage, [CocoResult])
+
+instance CocoMapable FilePath where
+  getCocoResult cocoMap filePath = do
+    imageIds <- Map.lookup filePath $ cocoMapImageId cocoMap
+    let imageId = head imageIds
+    image <- Map.lookup imageId $ cocoMapCocoImage cocoMap
+    results <- Map.lookup imageId $ cocoMapCocoResult cocoMap
+    return (image, results)
+
+instance CocoMapable ImageId where
+  getCocoResult cocoMap imageId = do
+    image <- Map.lookup imageId $ cocoMapCocoImage cocoMap
+    results <- Map.lookup imageId $ cocoMapCocoResult cocoMap
+    return (image, results)
+
+toCocoMap :: Coco -> [CocoResult] -> FilePath -> CocoMap
+toCocoMap coco cocoResult cocoFile =
   let cocoMapImageId = toImageId coco
       cocoMapCocoImage = toCocoImageMap coco
       cocoMapCocoAnnotation = toCocoAnnotationMap coco
@@ -331,4 +357,22 @@ toCocoMap coco cocoResult =
       cocoMapFilepath = toFilepathMap coco
       cocoMapImageIds = map (\CocoImage {..} -> cocoImageId) $ cocoImages coco
       cocoMapCategoryIds = map (\CocoCategory {..} -> cocoCategoryId) $ cocoCategories coco
+      cocoMapCoco = coco
+      cocoMapCocoFile = cocoFile
    in CocoMap {..}
+
+readCocoMap :: FilePath -> FilePath -> IO CocoMap
+readCocoMap cocoFile cocoResultFile = do
+  coco <- readCoco cocoFile
+  cocoResult <- readCocoResult cocoResultFile
+  return $ toCocoMap coco cocoResult cocoFile
+
+-- resampleCocoMapWithImageIds :: CocoMap -> [ImageId] -> CocoMap
+-- resampleCocoMapWithImageIds cocoMap imageIds = do
+--   let coco = Coco {
+--     cocoInfo = cocoInfo cocoMap,
+--     cocoLicenses = cocoLicenses cocoMap,
+--     cocoImages = map (\imageId -> fromMaybe (error "resampleCocoMapWithImageIds: imageId not found") $ Map.lookup imageId $ cocoMapCocoImage cocoMap) imageIds,
+--     cocoAnnotations = concat $ map (\imageId -> fromMaybe (error "resampleCocoMapWithImageIds: imageId not found") $ Map.lookup imageId $ cocoMapCocoAnnotation cocoMap) imageIds,
+--     cocoCategories = cocoCategories cocoMap
+--   }

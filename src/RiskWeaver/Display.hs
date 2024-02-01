@@ -56,9 +56,13 @@ drawDetectionBoundingBox
  -> Maybe Double -- ^ Score threshold
  -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -- ^ Overlay function to draw object property
  -> IO (Image PixelRGB8)
-drawDetectionBoundingBox imageBin annotations risks categories scoreThreshold overlay = do
+drawDetectionBoundingBox imageBin annotations properties categories scoreThreshold overlay = do
   let imageRGB8 = convertRGB8 imageBin
-  forM_ annotations $ \annotation -> do
+      zipedAnnotations = zip annotations $
+        case properties of
+          [] -> repeat Nothing
+          _ -> map Just properties
+  forM_ zipedAnnotations $ \(annotation, property) -> do
     let (CoCoBoundingBox (bx, by, bw, bh)) = cocoResultBbox annotation
         x = round bx
         y = round by
@@ -69,6 +73,11 @@ drawDetectionBoundingBox imageBin annotations risks categories scoreThreshold ov
           drawString (T.unpack (cocoCategoryName (categories Map.! cocoResultCategory annotation))) x y (255, 0, 0) (0, 0, 0) imageRGB8
           -- Use printf format to show score
           drawString (printf "%.2f" (unScore $ cocoResultScore annotation)) x (y + 10) (255, 0, 0) (0, 0, 0) imageRGB8
+          case (property, overlay) of
+            (Just property, Just overlay) -> do
+              overlay imageRGB8 property
+              return ()
+            _ -> return ()
     -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
     case scoreThreshold of
       Nothing -> draw
@@ -104,13 +113,10 @@ showImage coco cocoFile imageFile enableBoundingBox = do
     else do
       putImage (Left imagePath)
 
-showDetectionImage :: Show a => Coco -> FilePath -> FilePath -> FilePath -> Maybe Double -> [a] -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -> IO ()
-showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold properties overlay = do
-  let cocoFileNameWithoutExtension = takeBaseName cocoFile
-      imageDir = takeDirectory (takeDirectory cocoFile) </> cocoFileNameWithoutExtension </> "images"
-      imagePath = imageDir </> imageFile
-  cocoResult <- readCocoResult cocoResultFile
-  let image' = getCocoResultByFileName coco cocoResult imageFile
+showDetectionImage :: Show a => CocoMap -> FilePath -> Maybe Double -> [a] -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -> IO ()
+showDetectionImage cocoMap imageFile scoreThreshold properties overlay = do
+  let imagePath = getImageDir cocoMap </> imageFile
+  let image' = getCocoResult cocoMap imageFile
   case image' of
     Nothing -> putStrLn $ "Image file " ++ imageFile ++ " is not found."
     Just (image, annotations) -> do
@@ -118,6 +124,5 @@ showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold propert
       case imageBin' of
         Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read."
         Right imageBin -> do
-          let categories = toCategoryMap coco
-          drawDetectionBoundingBox imageBin (filter (\res -> cocoResultImageId res == cocoImageId image) cocoResult) properties categories scoreThreshold overlay
+          drawDetectionBoundingBox imageBin annotations properties (cocoMapCocoCategory cocoMap) scoreThreshold overlay
             >>= putImage . Right

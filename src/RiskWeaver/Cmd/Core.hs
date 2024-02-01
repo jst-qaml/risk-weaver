@@ -39,12 +39,7 @@ data CocoCommand
       { cocoFile :: FilePath,
         cocoResultFile :: FilePath,
         imageFile :: FilePath,
-        scoreThreshold :: Maybe Double
-      }
-  | ShowDetectionImageWithRisks
-      { cocoFile :: FilePath,
-        cocoResultFile :: FilePath,
-        imageFile :: FilePath,
+        iouThreshold :: Maybe Double,
         scoreThreshold :: Maybe Double
       }
   | Evaluate
@@ -80,10 +75,10 @@ data CocoCommand
 
 data RiskCommands = 
   RiskCommands
-    { showRisk :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
-    , showRiskWithError :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
-    , generateRiskWeightedDataset :: Coco -> [CocoResult] -> FilePath -> Maybe Double -> Maybe Double -> IO ()
-    , showDetectionImageWithRisks :: Coco -> FilePath -> FilePath -> FilePath -> Maybe Double -> Maybe (Image PixelRGB8 -> Int -> IO (Image PixelRGB8)) -> IO ()
+    { showRisk :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+    , showRiskWithError :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+    , generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
+    , showDetectionImage :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
     }
 
 listImages :: Coco -> IO ()
@@ -134,15 +129,10 @@ listCocoResult cocoResults = do
   forM_ cocoResults $ \cocoResult -> do
     putStrLn $ show (cocoResultImageId cocoResult) ++ "\t" ++ show (cocoResultCategory cocoResult) ++ "\t" ++ show (cocoResultScore cocoResult) ++ "\t" ++ show (cocoResultBbox cocoResult)
 
-evaluate :: Coco -> [CocoResult] -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
-evaluate coco cocoResults iouThreshold scoreThresh mImageId = do
+evaluate :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+evaluate cocoMap iouThreshold scoreThresh mImageId = do
   -- Print mAP
-  let cocoMap =
-        let cocoMap' = toCocoMap coco cocoResults
-         in case mImageId of
-              Nothing -> cocoMap'
-              Just imageId -> cocoMap' {cocoMapImageIds = [imageId]}
-      iouThreshold' = case iouThreshold of
+  let iouThreshold' = case iouThreshold of
         Nothing -> IOU 0.5
         Just iouThreshold -> IOU iouThreshold
       scoreThresh' = case scoreThresh of
@@ -201,8 +191,7 @@ opts =
         <> command "list-annotations" (info (ListAnnotations <$> argument str (metavar "FILE")) (progDesc "list all annotations of coco file"))
         <> command "list-coco-result" (info (ListCocoResult <$> argument str (metavar "FILE")) (progDesc "list all coco result"))
         <> command "show-image" (info (ShowImage <$> argument str (metavar "FILE") <*> argument str (metavar "IMAGE_FILE") <*> switch (long "enable-bounding-box" <> short 'b' <> help "enable bounding box")) (progDesc "show image by sixel"))
-        <> command "show-detection-image" (info (ShowDetectionImage <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image by sixel"))
-        <> command "show-detection-image-with-risks" (info (ShowDetectionImageWithRisks <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image with risks by sixel"))
+        <> command "show-detection-image" (info (ShowDetectionImage <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image by sixel"))
         <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "evaluate coco result"))
         <> command "show-risk" (info (ShowRisk <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "show risk"))
         <> command "show-risk-with-error" (info (ShowRiskWithError <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "show risk with error"))
@@ -231,26 +220,19 @@ baseMain RiskCommands{..} = do
     ShowImage cocoFile imageFile enableBoundingBox -> do
       coco <- readCoco cocoFile
       showImage coco cocoFile imageFile enableBoundingBox
-    ShowDetectionImage cocoFile cocoResultFile imageFile scoreThreshold -> do
-      coco <- readCoco cocoFile
-      showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold Nothing
-    ShowDetectionImageWithRisks cocoFile cocoResultFile imageFile scoreThreshold -> do
-      coco <- readCoco cocoFile
-      showDetectionImage coco cocoFile cocoResultFile imageFile scoreThreshold Nothing -- (Just (showRiskWithError coco cocoResultFile Nothing Nothing Nothing))
+    ShowDetectionImage cocoFile cocoResultFile imageFile iouThreshold scoreThreshold -> do
+      cocoMap <- readCocoMap cocoFile cocoResultFile
+      showDetectionImage cocoMap imageFile iouThreshold scoreThreshold
     Evaluate cocoFile cocoResultFile iouThreshold scoreThreshold imageId -> do
-      coco <- readCoco cocoFile
-      cocoResult <- readCocoResult cocoResultFile
-      evaluate coco cocoResult iouThreshold scoreThreshold (fmap ImageId imageId)
+      cocoMap <- readCocoMap cocoFile cocoResultFile
+      evaluate cocoMap iouThreshold scoreThreshold (fmap ImageId imageId)
     ShowRisk cocoFile cocoResultFile iouThreshold scoreThreshold imageId -> do
-      coco <- readCoco cocoFile
-      cocoResult <- readCocoResult cocoResultFile
-      showRisk coco cocoResult iouThreshold scoreThreshold (fmap ImageId imageId)
+      cocoMap <- readCocoMap cocoFile cocoResultFile
+      showRisk cocoMap iouThreshold scoreThreshold (fmap ImageId imageId)
     ShowRiskWithError cocoFile cocoResultFile iouThreshold scoreThreshold imageId -> do
-      coco <- readCoco cocoFile
-      cocoResult <- readCocoResult cocoResultFile
-      showRiskWithError coco cocoResult iouThreshold scoreThreshold (fmap ImageId imageId)
+      cocoMap <- readCocoMap cocoFile cocoResultFile
+      showRiskWithError cocoMap iouThreshold scoreThreshold (fmap ImageId imageId)
     GenerateRiskWeightedDataset cocoFile cocoResultFile cocoOutputFile iouThreshold scoreThreshold -> do
-      coco <- readCoco cocoFile
-      cocoResult <- readCocoResult cocoResultFile
-      generateRiskWeightedDataset coco cocoResult cocoOutputFile iouThreshold scoreThreshold
+      cocoMap <- readCocoMap cocoFile cocoResultFile
+      generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThreshold
     _ -> return ()
