@@ -38,6 +38,7 @@ library
                     , RiskWeaver.Draw
                     , RiskWeaver.Display
                     , RiskWeaver.Metric
+                    , RiskWeaver.Pip
                     , RiskWeaver.Cmd.Core
                     , RiskWeaver.Cmd.BDD
     build-depends:    base == 4.*

@@ -97,6 +97,10 @@ class BoundingBox a where
   isInIeterestAreaD :: InterestArea a -> Detection a -> Bool
   -- | True if the ground truth is in the interest area
   isInIeterestAreaG :: InterestArea a -> a -> Bool
+  -- | True if the detection is in the interest object
+  isInterestObjectD :: InterestObject a -> Detection a -> Bool
+  -- | True if the ground truth is in the interest object
+  isInterestObjectG :: InterestObject a -> a -> Bool
 
   -- | Risk of the detection
   riskD :: Env a -> Detection a -> Risk a

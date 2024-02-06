@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE LambdaCase #-}
 
 
 module RiskWeaver.DSL.BDD where
@@ -22,6 +23,7 @@ import Data.Set qualified as Set
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import RiskWeaver.Format.Coco
+import RiskWeaver.Pip
 
 data BoundingBoxGT = BoundingBoxGT
   { x :: Double,
@@ -74,7 +76,7 @@ instance BoundingBox BoundingBoxGT where
     | TrueNegative
     deriving (Ord, Eq)
   type InterestArea _ = [(Double, Double)]
-  type InterestObject _ = BoundingBoxGT
+  type InterestObject _ = Either BoundingBoxGT BoundingBoxDT -> Bool
   data Env _ = MyEnv
     { envGroundTruth :: Vector BoundingBoxGT,
       envDetection :: Vector BoundingBoxDT,
@@ -87,7 +89,9 @@ instance BoundingBox BoundingBoxGT where
   riskE env = runReader myRisk env
   interestArea :: Env BoundingBoxGT -> InterestArea BoundingBoxGT
   interestArea _ = [(0, 1), (0.3, 0.6), (0.7, 0.6), (1, 1), (1, 2), (0, 2)]
-  interestObject _ = undefined
+  interestObject _ = \case 
+    Left gt -> gt.w * gt.h > 1000
+    Right dt -> dt.w * dt.h > 1000
   groundTruth env = envGroundTruth env
   detection env = envDetection env
   confidenceScoreThresh env = envConfidenceScoreThresh env
@@ -161,8 +165,13 @@ instance BoundingBox BoundingBoxGT where
           dts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts
 
   isInIeterestAreaD :: InterestArea BoundingBoxGT -> Detection BoundingBoxGT -> Bool
-  isInIeterestAreaD _ _ = undefined
-  isInIeterestAreaG _ _ = undefined
+  isInIeterestAreaD polygon dt = pointInPolygon (Polygon polygon) (Point (dt.x, dt.y))
+  isInIeterestAreaG :: InterestArea BoundingBoxGT -> BoundingBoxGT -> Bool
+  isInIeterestAreaG polygon gt = pointInPolygon (Polygon polygon) (Point (gt.x, gt.y))
+  isInterestObjectD :: InterestObject BoundingBoxGT -> Detection BoundingBoxGT -> Bool
+  isInterestObjectD fn dt = fn $ Right dt
+  isInterestObjectG :: InterestObject BoundingBoxGT -> BoundingBoxGT -> Bool
+  isInterestObjectG fn gt = fn $ Left gt
 
   riskD _ _ = undefined
   riskBB _ = undefined
