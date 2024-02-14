@@ -28,106 +28,21 @@ import RiskWeaver.Display (putImage)
 import System.FilePath (takeBaseName, takeDirectory, (</>))
 
 
-cocoCategoryToClass :: CocoMap -> CategoryId -> BDD.Class
-cocoCategoryToClass coco categoryId =
-  let cocoCategory = (cocoMapCocoCategory coco) Map.! categoryId
-   in case T.unpack (cocoCategoryName cocoCategory) of
-        "pedestrian" -> BDD.Pedestrian
-        "rider" -> BDD.Rider
-        "car" -> BDD.Car
-        "truck" -> BDD.Truck
-        "bus" -> BDD.Bus
-        "train" -> BDD.Train
-        "motorcycle" -> BDD.Motorcycle
-        "bicycle" -> BDD.Bicycle
-        _ -> BDD.Background
-
-cocoResultToVector :: CocoMap -> ImageId -> (Vector BDD.BoundingBoxGT, Vector BDD.BoundingBoxDT)
-cocoResultToVector coco imageId = (groundTruth, detection)
-  where
-    groundTruth =
-      Vector.fromList $
-        maybe
-          []
-          ( map
-              ( \(index, CocoAnnotation {..}) ->
-                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoAnnotationBbox
-                   in BDD.BoundingBoxGT
-                        { x = cocox,
-                          y = cocoy,
-                          w = cocow,
-                          h = cocoh,
-                          cls = cocoCategoryToClass coco cocoAnnotationCategory,
-                          idx = index -- cocoAnnotationId
-                        }
-              )
-              . zip [0..]
-          )
-          (Map.lookup imageId (cocoMapCocoAnnotation coco))
-    detection =
-      Vector.fromList $
-        maybe
-          []
-          ( map
-              ( \(index, CocoResult {..}) ->
-                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoResultBbox
-                   in BDD.BoundingBoxDT
-                        { x = cocox,
-                          y = cocoy,
-                          w = cocow,
-                          h = cocoh,
-                          cls = cocoCategoryToClass coco cocoResultCategory,
-                          score = unScore cocoResultScore,
-                          idx = index
-                        }
-              )
-              . zip [0..]
-          )
-          (Map.lookup imageId (cocoMapCocoResult coco))
-
-runRisk ::
-  CocoMap ->
-  IO [(ImageId, Double)]
-runRisk cocoMap = do
-  forM (cocoMapImageIds cocoMap) $ \imageId -> do
-    let (groundTruth, detection) = cocoResultToVector cocoMap imageId
-    let env =
-          BDD.MyEnv
-            { envGroundTruth = groundTruth,
-              envDetection = detection,
-              envConfidenceScoreThresh = 0.4,
-              envIoUThresh = 0.5
-            }
-    risk <- flip runReaderT env BDD.myRisk
-    return (imageId, risk)
-
-cocoToEnv :: CocoMap -> ImageId -> Core.Env BDD.BoundingBoxGT
-cocoToEnv cocoMap imageId =
-  let (groundTruth, detection) = cocoResultToVector cocoMap imageId
-   in BDD.MyEnv
-        { envGroundTruth = groundTruth,
-          envDetection = detection,
-          envConfidenceScoreThresh = 0.4,
-          envIoUThresh = 0.5
-        }
-
-getRisk :: Core.Env BDD.BoundingBoxGT -> [BDD.BddRisk]
-getRisk env = runReader BDD.myRiskWithError env
-
-runRiskWithError :: CocoMap -> [(ImageId, [BDD.BddRisk])]
-runRiskWithError cocoMap =
-  flip map (cocoMapImageIds cocoMap) $ \imageId -> (imageId, getRisk (cocoToEnv cocoMap imageId))
-
 
 showRisk :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
 showRisk cocoMap iouThreshold scoreThresh mImageId = do
   let iouThreshold' = case iouThreshold of
-        Nothing -> IOU 0.5
-        Just iouThreshold -> IOU iouThreshold
+        Nothing -> 0.5
+        Just iouThreshold -> iouThreshold
       scoreThresh' = case scoreThresh of
-        Nothing -> Score 0.4
-        Just scoreThresh -> Score scoreThresh
-  risks <- runRisk cocoMap
+        Nothing -> 0.4
+        Just scoreThresh -> scoreThresh
+      context = BDD.BddContext
+        { bddContextDataset = cocoMap
+        , bddContextIouThresh = iouThreshold'
+        , bddContextScoreThresh = scoreThresh'
+        } 
+  risks <- BDD.runRisk context
   putStrLn $ printf "%-12s %-12s %s" "#ImageId" "Filename" "Risk"
   let sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare risk2 risk1) risks
   forM_ sortedRisks $ \(imageId, risk) -> do
@@ -137,12 +52,17 @@ showRisk cocoMap iouThreshold scoreThresh mImageId = do
 showRiskWithError :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
 showRiskWithError cocoMap iouThreshold scoreThresh mImageId = do
   let iouThreshold' = case iouThreshold of
-        Nothing -> IOU 0.5
-        Just iouThreshold -> IOU iouThreshold
+        Nothing -> 0.5
+        Just iouThreshold -> iouThreshold
       scoreThresh' = case scoreThresh of
-        Nothing -> Score 0.4
-        Just scoreThresh -> Score scoreThresh
-      risks = runRiskWithError cocoMap :: [(ImageId, [BDD.BddRisk])]
+        Nothing -> 0.4
+        Just scoreThresh -> scoreThresh
+      context = BDD.BddContext
+        { bddContextDataset = cocoMap
+        , bddContextIouThresh = iouThreshold'
+        , bddContextScoreThresh = scoreThresh'
+        } 
+      risks = BDD.runRiskWithError context :: [(ImageId, [BDD.BddRisk])]
   putStrLn $ printf "%-12s %-12s %-12s %-12s" "#ImageId" "Filename" "Risk" "ErrorType"
   let sum' riskWithErrors = sum $ map (\r -> r.risk) riskWithErrors
       sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare (sum' risk2) (sum' risk1)) risks
@@ -180,12 +100,17 @@ resampleCocoMapWithImageIds cocoMap imageIds =
 generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
 generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
   let iouThreshold' = case iouThreshold of
-        Nothing -> IOU 0.5
-        Just iouThreshold -> IOU iouThreshold
+        Nothing -> 0.5
+        Just iouThreshold -> iouThreshold
       scoreThresh' = case scoreThresh of
-        Nothing -> Score 0.4
-        Just scoreThresh -> Score scoreThresh
-  risks <- runRisk cocoMap
+        Nothing -> 0.4
+        Just scoreThresh -> scoreThresh
+      context = BDD.BddContext
+        { bddContextDataset = cocoMap
+        , bddContextIouThresh = iouThreshold'
+        , bddContextScoreThresh = scoreThresh'
+        } 
+  risks <- BDD.runRisk context
   let sumRisks = sum $ map snd risks
       probabilitis = map (\(_, risk) -> risk / sumRisks) risks
       accumulatedProbabilitis = scanl (+) 0 probabilitis
@@ -242,11 +167,22 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
   let imageDir = getImageDir cocoMap
       imagePath = imageDir </> imageFile
   let image' = getCocoResult cocoMap imageFile
+      iouThreshold' = case iouThreshold of
+        Nothing -> 0.5
+        Just iouThreshold -> iouThreshold
+      scoreThresh' = case scoreThreshold of
+        Nothing -> 0.4
+        Just scoreThresh -> scoreThresh
+      context = BDD.BddContext
+        { bddContextDataset = cocoMap
+        , bddContextIouThresh = iouThreshold'
+        , bddContextScoreThresh = scoreThresh'
+        } 
   case image' of
     Nothing -> putStrLn $ "Image file " ++ imageFile ++ " is not found."
     Just (image, cocoResults) -> do
       imageBin' <- readImage imagePath
-      let env = cocoToEnv cocoMap (cocoImageId image)
+      let env = BDD.contextToEnv context (cocoImageId image)
           riskG = runReader BDD.riskForGroundTruth env
           riskD = runReader BDD.riskForDetection env
       forM_ riskG $ \riskg -> do
@@ -263,7 +199,7 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
             case riskGt of
               Nothing -> return ()
               Just riskGt -> do
-                let annotation = env.envGroundTruth Vector.! riskGt
+                let annotation = env.envGroundTruth Vector.! (Core.idG riskGt)
                     (bx, by, bw, bh) = (annotation.x, annotation.y, annotation.w, annotation.h)
                     category = annotation.cls
                     x = round bx
@@ -286,7 +222,7 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
             case riskDt of
               Nothing -> return ()
               Just riskDt -> do
-                let annotation = env.envDetection Vector.! riskDt
+                let annotation = env.envDetection Vector.! Core.idD riskDt
                     (bx, by, bw, bh) = (annotation.x, annotation.y, annotation.w, annotation.h)
                     category = annotation.cls
                     x = round bx

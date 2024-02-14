@@ -11,18 +11,21 @@
 
 module RiskWeaver.DSL.BDD where
 
-import Control.Monad (mapM)
+import Control.Monad (mapM, forM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReader, runReaderT)
 import RiskWeaver.DSL.Core
 import Data.List qualified as List
 import Data.Map (Map)
-import Data.Maybe (Maybe)
+import Data.Map qualified as Map
+import Data.Maybe (Maybe, fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Data.Text qualified as T
 import RiskWeaver.Format.Coco
+import RiskWeaver.Metric
 import RiskWeaver.Pip
 
 data BoundingBoxGT = BoundingBoxGT
@@ -33,7 +36,7 @@ data BoundingBoxGT = BoundingBoxGT
     cls :: Class,
     idx :: Int
   }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 data Class
   = Background
@@ -45,7 +48,7 @@ data Class
   | Train
   | Motorcycle
   | Bicycle
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 data SubErrorType 
   = Boundary
@@ -66,7 +69,7 @@ instance BoundingBox BoundingBoxGT where
       score :: Double,
       idx :: Int
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Ord)
   type ClassG _ = Class
   type ClassD _ = Class
   data ErrorType _
@@ -81,10 +84,11 @@ instance BoundingBox BoundingBoxGT where
     { envGroundTruth :: Vector BoundingBoxGT,
       envDetection :: Vector BoundingBoxDT,
       envConfidenceScoreThresh :: Double,
-      envIoUThresh :: Double
-    }
+      envIoUThresh :: Double,
+      envImageId :: Int
+    } deriving (Show, Ord, Eq)
   type Idx _ = Int
-  type Risk _ = Double
+  type Risk _ = BddRisk
 
   riskE env = runReader myRisk env
   interestArea :: Env BoundingBoxGT -> InterestArea BoundingBoxGT
@@ -100,6 +104,7 @@ instance BoundingBox BoundingBoxGT where
   sizeD v = v.w * v.h
   classD v = v.cls
   idD v = v.idx
+  imageId env = envImageId env
 
   isFrontD :: Detection BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isFrontD dtBack dtFront =
@@ -131,8 +136,8 @@ instance BoundingBox BoundingBoxGT where
      in case gts''' of
           [] -> Nothing
           gts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts
-  errorType :: Env BoundingBoxGT -> Detection BoundingBoxGT -> Maybe (ErrorType BoundingBoxGT)
-  errorType _ _ = undefined
+  toErrorType = riskType
+
 
   sizeG v = v.w * v.h
   classG v = v.cls
@@ -173,15 +178,16 @@ instance BoundingBox BoundingBoxGT where
   isInterestObjectG :: InterestObject BoundingBoxGT -> BoundingBoxGT -> Bool
   isInterestObjectG fn gt = fn $ Left gt
 
-  riskD _ _ = undefined
-  riskBB _ = undefined
+  confusionMatrixRecallBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksGt $ \bddRisk@BddRisk{..} ->
+    Map.singleton (maybe Background classG riskGt,maybe Background classD riskDt) [bddRisk]
+    where
+      risksGt = runReader riskForGroundTruth env
+  confusionMatrixAccuracyBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksDt $ \bddRisk@BddRisk{..} ->
+    Map.singleton (maybe Background classD riskDt,maybe Background classG riskGt) [bddRisk]
+    where
+      risksDt = runReader riskForDetection env
 
-  confusionMatrixRecallBB _ = undefined
-  confusionMatrixAccuracyBB _ = undefined
-  confusionMatrixRecallBB' _ = undefined
-  confusionMatrixAccuracyBB' _ = undefined
-  errorGroupsBB _ = undefined
-
+  
 instance Show (ErrorType BoundingBoxGT) where
   show (FalsePositive suberrors) = "FP: " ++ foldl (\acc suberror -> acc ++ show suberror ++ ", ") "" (Set.toList suberrors)
   show (FalseNegative suberrors) = "FN: " ++ foldl (\acc suberror -> acc ++ show suberror ++ ", ") "" (Set.toList suberrors)
@@ -191,9 +197,9 @@ instance Show (ErrorType BoundingBoxGT) where
 data BddRisk =
   BddRisk
     { riskType ::ErrorType BoundingBoxGT
-    , risk :: Risk BoundingBoxGT
-    , riskGt :: Maybe (Idx BoundingBoxGT)
-    , riskDt :: Maybe (Idx BoundingBoxGT)
+    , risk :: Double
+    , riskGt :: Maybe BoundingBoxGT
+    , riskDt :: Maybe (Detection BoundingBoxGT)
     } deriving (Show, Ord, Eq)
 
 detectMaxIouG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
@@ -217,50 +223,50 @@ riskForGroundTruth = do
   loopG (++) [] $ \(gt :: a) ->
     case detectG env gt of
       Just (dt :: Detection a) -> 
-        return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
+        return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 0.001, riskType = TruePositive }]
       Nothing -> do
         case detectMaxIouG env gt of
-          Nothing -> return [BddRisk { riskGt = Just (idG gt), riskDt = Nothing, risk = 10, riskType = FalseNegative [] }]
+          Nothing -> return [BddRisk { riskGt = Just gt, riskDt = Nothing, risk = 10, riskType = FalseNegative [] }]
           Just (dt :: Detection a) -> do
             case (classD @BoundingBoxGT dt == classG @BoundingBoxGT gt,
                   scoreD @BoundingBoxGT dt > confidenceScoreThresh env,
                   ioU gt dt > ioUThresh env,
                   ioG gt dt > ioUThresh env
                 ) of
-              (False, False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5.1, riskType = FalseNegative [MissClass, LowScore, Occulusion] }]
-              (False, False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [MissClass, LowScore] }]
-              (False, True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5.1, riskType = FalseNegative [MissClass, Occulusion] }]
-              (False, True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalseNegative [MissClass] }]
-              (True,  False, False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5.1, riskType = FalseNegative [LowScore, Occulusion] }]
-              (True,  False, True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 5, riskType = FalseNegative [LowScore] }]
-              (True,  True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.1, riskType = FalseNegative [Occulusion] }]
-              (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
-              (_,     _,     False, False )-> return [BddRisk { riskGt = Just (idG gt), riskDt = Nothing, risk = 10, riskType = FalseNegative [] }]
+              (False, False, False, True ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 5.1, riskType = FalseNegative [MissClass, LowScore, Occulusion] }]
+              (False, False, True,  _    ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 5, riskType = FalseNegative [MissClass, LowScore] }]
+              (False, True,  False, True ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 5.1, riskType = FalseNegative [MissClass, Occulusion] }]
+              (False, True,  True,  _    ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 2, riskType = FalseNegative [MissClass] }]
+              (True,  False, False, True ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 5.1, riskType = FalseNegative [LowScore, Occulusion] }]
+              (True,  False, True,  _    ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 5, riskType = FalseNegative [LowScore] }]
+              (True,  True,  False, True ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 0.1, riskType = FalseNegative [Occulusion] }]
+              (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 0.001, riskType = TruePositive }]
+              (_,     _,     False, False )-> return [BddRisk { riskGt = Just gt, riskDt = Nothing, risk = 30, riskType = FalseNegative [] }]
 
 riskForDetection :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
 riskForDetection = do
   env <- ask
   loopD (++) [] $ \(dt :: Detection a) ->
     case detectD env dt of
-      Just (gt :: a) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
+      Just (gt :: a) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 0.001, riskType = TruePositive }]
       Nothing -> do
         case detectMaxIouD env dt of
-          Nothing -> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 5, riskType = FalsePositive []}]
+          Nothing -> return [BddRisk { riskGt = Nothing, riskDt = Just dt, risk = 5, riskType = FalsePositive []}]
           Just (gt :: a) -> do
             case (classD @BoundingBoxGT dt == classG @BoundingBoxGT gt,
                   scoreD @BoundingBoxGT dt > confidenceScoreThresh env,
                   ioU gt dt > ioUThresh env,
                   ioG gt dt > ioUThresh env
                 ) of
-              (False, True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2.1, riskType = FalsePositive [MissClass, Occulusion] }]
-              (False, True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 2, riskType = FalsePositive [MissClass] }]
-              (True,  True,  False, True ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.1, riskType = FalsePositive [Occulusion] }]
-              (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just (idG gt), riskDt = Just (idD dt), risk = 0.001, riskType = TruePositive }]
-              (_,     True,  False, False )-> return [BddRisk { riskGt = Nothing, riskDt = Just (idD dt), risk = 10, riskType = FalsePositive [] }]
+              (False, True,  False, True ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 2.1, riskType = FalsePositive [MissClass, Occulusion] }]
+              (False, True,  True,  _    ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 2, riskType = FalsePositive [MissClass] }]
+              (True,  True,  False, True ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 0.1, riskType = FalsePositive [Occulusion] }]
+              (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = 0.001, riskType = TruePositive }]
+              (_,     True,  False, False )-> return [BddRisk { riskGt = Nothing, riskDt = Just dt, risk = 5, riskType = FalsePositive [] }]
               (_,     False, _    ,  _    )-> return []
 
-myRiskWithError :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
-myRiskWithError = do
+myRisk :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
+myRisk = do
   riskG <- riskForGroundTruth
   riskD <- riskForDetection
   return $ riskG <> riskD
@@ -279,7 +285,112 @@ myRiskWithError = do
 --               then return 1
 --               else return 5
 
-myRisk :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m (Risk BoundingBoxGT)
-myRisk = do
-  risks <- myRiskWithError
-  return $ sum $ map (\r -> r.risk) risks
+
+cocoCategoryToClass :: CocoMap -> CategoryId -> Class
+cocoCategoryToClass coco categoryId =
+  let cocoCategory = (cocoMapCocoCategory coco) Map.! categoryId
+   in case T.unpack (cocoCategoryName cocoCategory) of
+        "pedestrian" -> Pedestrian
+        "rider" -> Rider
+        "car" -> Car
+        "truck" -> Truck
+        "bus" -> Bus
+        "train" -> Train
+        "motorcycle" -> Motorcycle
+        "bicycle" -> Bicycle
+        _ -> Background
+
+cocoResultToVector :: CocoMap -> ImageId -> (Vector BoundingBoxGT, Vector BoundingBoxDT)
+cocoResultToVector coco imageId = (groundTruth, detection)
+  where
+    groundTruth =
+      Vector.fromList $
+        maybe
+          []
+          ( map
+              ( \(index, CocoAnnotation {..}) ->
+                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoAnnotationBbox
+                   in BoundingBoxGT
+                        { x = cocox,
+                          y = cocoy,
+                          w = cocow,
+                          h = cocoh,
+                          cls = cocoCategoryToClass coco cocoAnnotationCategory,
+                          idx = index -- cocoAnnotationId
+                        }
+              )
+              . zip [0..]
+          )
+          (Map.lookup imageId (cocoMapCocoAnnotation coco))
+    detection =
+      Vector.fromList $
+        maybe
+          []
+          ( map
+              ( \(index, CocoResult {..}) ->
+                  let CoCoBoundingBox (cocox, cocoy, cocow, cocoh) = cocoResultBbox
+                   in BoundingBoxDT
+                        { x = cocox,
+                          y = cocoy,
+                          w = cocow,
+                          h = cocoh,
+                          cls = cocoCategoryToClass coco cocoResultCategory,
+                          score = unScore cocoResultScore,
+                          idx = index
+                        }
+              )
+              . zip [0..]
+          )
+          (Map.lookup imageId (cocoMapCocoResult coco))
+
+data BddContext = BddContext
+  { bddContextDataset :: CocoMap
+  , bddContextIouThresh :: Double
+  , bddContextScoreThresh :: Double
+  } deriving (Show, Eq)
+
+instance World BddContext BoundingBoxGT where
+  envs BddContext{..} = map (\imageId ->
+                               let (gt,dt) = cocoResultToVector bddContextDataset imageId
+                               in MyEnv {
+                                 envGroundTruth = gt,
+                                 envDetection = dt,
+                                 envConfidenceScoreThresh = bddContextScoreThresh,
+                                 envIoUThresh = bddContextIouThresh,
+                                 envImageId = unImageId imageId
+                                 }) bddContextDataset.cocoMapImageIds
+  mAP BddContext{..} = fst $ RiskWeaver.Metric.mAP bddContextDataset (IOU bddContextIouThresh)
+  ap BddContext{..} = Map.fromList $ map (\(key,value) -> (cocoCategoryToClass bddContextDataset key, value) )$ snd $ RiskWeaver.Metric.mAP bddContextDataset (IOU bddContextIouThresh)
+  risk context@BddContext{..} =  concat $ map snd $ runRiskWithError context
+  confusionMatrixRecall context@BddContext{..} = foldl (Map.unionWith (<>)) Map.empty risksGt
+    where
+      risksGt = flip map (cocoMapImageIds bddContextDataset) $ \imageId -> confusionMatrixRecallBB (contextToEnv context imageId)
+  confusionMatrixAccuracy context@BddContext{..} = foldl (Map.unionWith (<>)) Map.empty risksDt
+    where
+      risksDt = flip map (cocoMapImageIds bddContextDataset) $ \imageId -> confusionMatrixAccuracyBB (contextToEnv context imageId)
+
+runRisk ::
+  BddContext ->
+  IO [(ImageId, Double)]
+runRisk context@BddContext{..} = do
+  forM (cocoMapImageIds bddContextDataset) $ \imageId -> do
+    let (groundTruth, detection) = cocoResultToVector bddContextDataset imageId
+    let env = contextToEnv context imageId
+    risk <- flip runReaderT env myRisk
+    return (imageId, foldl (\total l -> total + l.risk) 0 risk)
+
+contextToEnv :: BddContext -> ImageId -> Env BoundingBoxGT
+contextToEnv BddContext{..} imageId =
+  let (groundTruth, detection) = cocoResultToVector bddContextDataset imageId
+   in MyEnv
+        { envGroundTruth = groundTruth,
+          envDetection = detection,
+          envConfidenceScoreThresh = bddContextScoreThresh,
+          envIoUThresh = bddContextIouThresh,
+          envImageId = unImageId imageId
+        }
+
+runRiskWithError :: BddContext -> [(ImageId, [BddRisk])]
+runRiskWithError context@BddContext{..} =
+  flip map (cocoMapImageIds bddContextDataset) $ \imageId -> (imageId, riskE (contextToEnv context imageId))
+

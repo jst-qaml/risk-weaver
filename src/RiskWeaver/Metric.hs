@@ -129,14 +129,14 @@ mAP cocoMap@CocoMap {..} iouThresh =
       aps = map (\categoryId -> apForCategory cocoMap categoryId iouThresh) categoryIds
    in (sum aps / fromIntegral (length aps), zip categoryIds aps)
 
-data ConfusionMatrix = ConfusionMatrix
-  { confusionMatrixRecall :: Map.Map (Gt CategoryId) (Map.Map (Dt CategoryId) Int),
-    confusionMatrixPrecision :: Map.Map (Dt CategoryId) (Map.Map (Gt CategoryId) Int),
+data ConfusionMatrix a = ConfusionMatrix
+  { confusionMatrixRecall :: Map.Map (Gt CategoryId) (Map.Map (Dt CategoryId) a),
+    confusionMatrixPrecision :: Map.Map (Dt CategoryId) (Map.Map (Gt CategoryId) a),
     confusionMatrixCategoryIds :: [CategoryId]
   }
   deriving (Show, Eq, Ord)
 
-instance Semigroup ConfusionMatrix where
+instance Semigroup a => Semigroup (ConfusionMatrix a) where
   ConfusionMatrix recall1 precision1 categoryIds1 <> ConfusionMatrix recall2 precision2 categoryIds2 =
     ConfusionMatrix
       { confusionMatrixRecall = recall,
@@ -144,16 +144,16 @@ instance Semigroup ConfusionMatrix where
         confusionMatrixCategoryIds = categoryIds
       }
     where
-      recall = Map.unionWith (Map.unionWith (+)) recall1 recall2
-      precision = Map.unionWith (Map.unionWith (+)) precision1 precision2
+      recall = Map.unionWith (Map.unionWith (<>)) recall1 recall2
+      precision = Map.unionWith (Map.unionWith (<>)) precision1 precision2
       categoryIds = categoryIds1
 
-confusionMatrix :: CocoMap -> IOU -> Score -> ConfusionMatrix
+confusionMatrix :: Monoid a => CocoMap -> IOU -> Score -> ConfusionMatrix a
 confusionMatrix cocoMap@CocoMap {..} iouThresh scoreThresh =
   foldl (<>) (ConfusionMatrix Map.empty Map.empty cocoMapCategoryIds) $
     map (confusionMatrixForImage cocoMap iouThresh scoreThresh) cocoMapImageIds
 
-confusionMatrixForImage :: CocoMap -> IOU -> Score -> ImageId -> ConfusionMatrix
+confusionMatrixForImage :: Monoid a => CocoMap -> IOU -> Score -> ImageId -> ConfusionMatrix a
 confusionMatrixForImage cocoMap@CocoMap {..} iouThresh scoreThresh imageId =
   ConfusionMatrix
     { confusionMatrixRecall = recall,
@@ -164,7 +164,7 @@ confusionMatrixForImage cocoMap@CocoMap {..} iouThresh scoreThresh imageId =
     gts = fromMaybe [] $ Map.lookup imageId cocoMapCocoAnnotation
     dts = fromMaybe [] $ Map.lookup imageId cocoMapCocoResult
     for = flip map
-    recall = foldl (Map.unionWith (Map.unionWith (+))) Map.empty $
+    recall = foldl (Map.unionWith (Map.unionWith (<>))) Map.empty $
       for gts $ \gt ->
         let iousWithDt = sortBy (\(iou0, _) (iou1, _) -> compare iou1 iou0) $ flip map dts $ \dt -> (iou (cocoAnnotationBbox gt) (cocoResultBbox dt), dt)
             filteredDt = filter (\(iou, dt) -> iou >= iouThresh && cocoResultScore dt >= scoreThresh) iousWithDt
@@ -172,10 +172,10 @@ confusionMatrixForImage cocoMap@CocoMap {..} iouThresh scoreThresh imageId =
          in case categoryFilter of
               [] ->
                 case filteredDt of
-                  [] -> Map.singleton (Gt $ cocoAnnotationCategory gt) $ Map.singleton DtBackground 1
-                  (iou, dt) : _ -> Map.singleton (Gt $ cocoAnnotationCategory gt) $ Map.singleton (Dt $ cocoResultCategory dt) 1
-              (iou, dt) : _ -> Map.singleton (Gt $ cocoAnnotationCategory gt) $ Map.singleton (Dt $ cocoResultCategory dt) 1
-    precision = foldl (Map.unionWith (Map.unionWith (+))) Map.empty $
+                  [] -> Map.singleton (Gt $ cocoAnnotationCategory gt) $ Map.singleton DtBackground mempty
+                  (iou, dt) : _ -> Map.singleton (Gt $ cocoAnnotationCategory gt) $ Map.singleton (Dt $ cocoResultCategory dt) mempty
+              (iou, dt) : _ -> Map.singleton (Gt $ cocoAnnotationCategory gt) $ Map.singleton (Dt $ cocoResultCategory dt) mempty
+    precision = foldl (Map.unionWith (Map.unionWith (<>))) Map.empty $
       for dts $ \dt ->
         let iousWithGt = sortBy (\(iou0, _) (iou1, _) -> compare iou1 iou0) $ flip map gts $ \gt -> (iou (cocoAnnotationBbox gt) (cocoResultBbox dt), gt)
             filteredGt = filter (\(iou, gt) -> iou >= iouThresh) iousWithGt
@@ -183,6 +183,6 @@ confusionMatrixForImage cocoMap@CocoMap {..} iouThresh scoreThresh imageId =
          in case categoryFilter of
               [] ->
                 case filteredGt of
-                  [] -> Map.singleton (Dt $ cocoResultCategory dt) $ Map.singleton GtBackground 1
-                  (iou, gt) : _ -> Map.singleton (Dt $ cocoResultCategory dt) $ Map.singleton (Gt $ cocoAnnotationCategory gt) 1
-              (iou, gt) : _ -> Map.singleton (Dt $ cocoResultCategory dt) $ Map.singleton (Gt $ cocoAnnotationCategory gt) 1
+                  [] -> Map.singleton (Dt $ cocoResultCategory dt) $ Map.singleton GtBackground mempty
+                  (iou, gt) : _ -> Map.singleton (Dt $ cocoResultCategory dt) $ Map.singleton (Gt $ cocoAnnotationCategory gt) mempty
+              (iou, gt) : _ -> Map.singleton (Dt $ cocoResultCategory dt) $ Map.singleton (Gt $ cocoAnnotationCategory gt) mempty

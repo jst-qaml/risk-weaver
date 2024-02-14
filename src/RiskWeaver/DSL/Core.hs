@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module RiskWeaver.DSL.Core where
 
@@ -35,7 +36,7 @@ class BoundingBox a where
   type Risk a :: Type
 
   -- | Risk of the environment
-  riskE :: Env a -> Risk a
+  riskE :: Env a -> [Risk a]
   -- | Interest area of the environment
   interestArea :: Env a -> InterestArea a
   -- | Interest object of the environment
@@ -56,6 +57,8 @@ class BoundingBox a where
   classD :: Detection a -> ClassG a
   -- | Index of the detection
   idD :: Detection a -> Idx a
+  -- | Index of the image
+  imageId:: Env a -> Idx a
 
   -- | True if the detection is in front of the other detection
   isFrontD :: Detection a -> Detection a -> Bool
@@ -73,8 +76,8 @@ class BoundingBox a where
   isBackGroundD :: ClassD a -> Bool
   -- | Detect the ground truth of the detection
   detectD :: Env a -> Detection a -> Maybe a
-  -- | Error type of the detection
-  errorType :: Env a -> Detection a -> Maybe (ErrorType a)
+  -- | Get error type from risk
+  toErrorType :: Risk a -> ErrorType a
 
   -- | Size of the ground truth
   sizeG :: a -> Double
@@ -102,46 +105,25 @@ class BoundingBox a where
   -- | True if the ground truth is in the interest object
   isInterestObjectG :: InterestObject a -> a -> Bool
 
-  -- | Risk of the detection
-  riskD :: Env a -> Detection a -> Risk a
-  -- | Risk of the bounding box
-  riskBB :: Env a -> Risk a
-
   -- | Confusion matrix of recall
-  confusionMatrixRecallBB :: Env a -> Map (ClassG a, ClassD a) Double
+  confusionMatrixRecallBB :: Env a -> Map (ClassG a, ClassD a) [Risk a]
   -- | Confusion matrix of accuracy
-  confusionMatrixAccuracyBB :: Env a -> Map (ClassD a, ClassG a) Double
-  -- | Confusion matrix of recall
-  confusionMatrixRecallBB' :: Env a -> Map (ClassG a, ClassD a) [Idx a]
-  -- | Confusion matrix of accuracy
-  confusionMatrixAccuracyBB' :: Env a -> Map (ClassD a, ClassG a) [Idx a]
-  -- | Error groups
-  errorGroupsBB :: Env a -> Map (ClassG a) (Map (ErrorType a) [Idx a])
+  confusionMatrixAccuracyBB :: Env a -> Map (ClassD a, ClassG a) [Risk a]
 
--- | Images of the world
-class (BoundingBox a) => World a where
-  -- | Image type
-  type Image a :: Type
-  -- | Image id
-  idI :: Image a -> Int
-  -- | Environment of the image
-  env :: Image a -> Env a
+-- | b includes ground-truth images and detection images.
+class World b a where
+  -- | Environments of the image
+  envs :: b -> [Env a]
   -- | mAP of the images
-  mAP :: Vector (Image a) -> Double
+  mAP :: b -> Double
   -- | AP of the images for each class
-  ap :: Vector (Image a) -> Map (ClassG a) Double
+  ap :: b -> Map (ClassG a) Double
   -- | Risk of the images
-  risk :: Vector (Image a) -> Double
+  risk :: b -> [Risk a]
   -- | Confusion matrix of recall
-  confusionMatrixRecall :: Vector (Image a) -> Map (ClassG a, ClassD a) Double
+  confusionMatrixRecall :: b -> Map (ClassG a, ClassD a) [Risk a]
   -- | Confusion matrix of accuracy
-  confusionMatrixAccuracy :: Vector (Image a) -> Map (ClassD a, ClassG a) Double
-  -- | Confusion matrix of recall
-  confusionMatrixRecall' :: Vector (Image a) -> Map (ClassG a, ClassD a) [Idx a]
-  -- | Confusion matrix of accuracy
-  confusionMatrixAccuracy' :: Vector (Image a) -> Map (ClassD a, ClassG a) [Idx a]
-  -- | Error groups
-  errorGroups :: Vector (Image a) -> Map (ClassG a) (Map (ErrorType a) [Idx a])
+  confusionMatrixAccuracy :: b -> Map (ClassD a, ClassG a) [Risk a]
 
 -- | Loop for ground truth
 loopG :: forall a m b. (BoundingBox a, Monad m) => (b -> b -> b) -> b -> (a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b

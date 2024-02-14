@@ -14,6 +14,7 @@ import Data.Maybe
 import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Data.Semigroup (Sum(..))
 import RiskWeaver.Display
 import RiskWeaver.Format.Coco
 import qualified RiskWeaver.Metric as Metric
@@ -139,7 +140,7 @@ evaluate cocoMap iouThreshold scoreThresh mImageId = do
         Nothing -> Score 0.1
         Just scoreThresh -> Score scoreThresh
       mAP = Metric.mAP cocoMap iouThreshold'
-      confusionMatrix = Metric.confusionMatrix cocoMap iouThreshold' scoreThresh'
+      confusionMatrix = Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
   putStrLn $ printf "%-12s %s" "#Category" "AP"
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     putStrLn $ printf "%-12s %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) ((Map.fromList (snd mAP)) Map.! categoryId)
@@ -157,9 +158,9 @@ evaluate cocoMap iouThreshold scoreThresh mImageId = do
   putStrLn ""
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-    putStr $ printf "%-12d" (((confusionMatrixRecall confusionMatrix) !!! Gt categoryId) !! DtBackground)
+    putStr $ printf "%-12d" $ getSum (((confusionMatrixRecall confusionMatrix) !!! Gt categoryId) !! DtBackground)
     forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
-      putStr $ printf "%-12d" (((confusionMatrixRecall confusionMatrix) !!! Gt categoryId) !! (Dt categoryId'))
+      putStr $ printf "%-12d" $ getSum (((confusionMatrixRecall confusionMatrix) !!! Gt categoryId) !! (Dt categoryId'))
     putStrLn ""
   putStrLn ""
 
@@ -171,9 +172,9 @@ evaluate cocoMap iouThreshold scoreThresh mImageId = do
   putStrLn ""
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-    putStr $ printf "%-12d" (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! GtBackground)
+    putStr $ printf "%-12d" $ getSum (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! GtBackground)
     forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
-      putStr $ printf "%-12d" (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! (Gt categoryId'))
+      putStr $ printf "%-12d" $ getSum (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! (Gt categoryId'))
     putStrLn ""
 
 bashCompletion :: IO ()
