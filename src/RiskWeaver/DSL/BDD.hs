@@ -182,7 +182,7 @@ instance BoundingBox BoundingBoxGT where
     Map.singleton (maybe Background classG riskGt,maybe Background classD riskDt) [bddRisk]
     where
       risksGt = runReader riskForGroundTruth env
-  confusionMatrixAccuracyBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksDt $ \bddRisk@BddRisk{..} ->
+  confusionMatrixPrecisionBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksDt $ \bddRisk@BddRisk{..} ->
     Map.singleton (maybe Background classD riskDt,maybe Background classG riskGt) [bddRisk]
     where
       risksDt = runReader riskForDetection env
@@ -365,9 +365,9 @@ instance World BddContext BoundingBoxGT where
   confusionMatrixRecall context@BddContext{..} = foldl (Map.unionWith (<>)) Map.empty risksGt
     where
       risksGt = flip map (cocoMapImageIds bddContextDataset) $ \imageId -> confusionMatrixRecallBB (contextToEnv context imageId)
-  confusionMatrixAccuracy context@BddContext{..} = foldl (Map.unionWith (<>)) Map.empty risksDt
+  confusionMatrixPrecision context@BddContext{..} = foldl (Map.unionWith (<>)) Map.empty risksDt
     where
-      risksDt = flip map (cocoMapImageIds bddContextDataset) $ \imageId -> confusionMatrixAccuracyBB (contextToEnv context imageId)
+      risksDt = flip map (cocoMapImageIds bddContextDataset) $ \imageId -> confusionMatrixPrecisionBB (contextToEnv context imageId)
 
 runRisk ::
   BddContext ->

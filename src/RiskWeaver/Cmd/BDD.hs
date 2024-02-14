@@ -14,6 +14,8 @@ import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Data.Maybe (fromMaybe)
+import Data.Monoid
 import Options.Applicative
 import RiskWeaver.Cmd.Core (RiskCommands (..))
 import RiskWeaver.DSL.BDD qualified as BDD
@@ -249,11 +251,73 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
           putImage (Right concatImage)
           
 
+evaluate :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+evaluate cocoMap iouThreshold scoreThresh mImageId = do
+  -- Print mAP
+  let iouThreshold' = case iouThreshold of
+        Nothing -> 0.5
+        Just iouThreshold -> iouThreshold
+      scoreThresh' = case scoreThresh of
+        Nothing -> 0.1
+        Just scoreThresh -> scoreThresh
+      context = BDD.BddContext
+        { bddContextDataset = cocoMap
+        , bddContextIouThresh = iouThreshold'
+        , bddContextScoreThresh = scoreThresh'
+        } 
+      mAP = Core.mAP @BDD.BddContext @BDD.BoundingBoxGT context
+      ap = Core.ap @BDD.BddContext @BDD.BoundingBoxGT context
+      confusionMatrixR :: Map.Map (BDD.Class, BDD.Class) [BDD.BddRisk]
+      confusionMatrixR = Core.confusionMatrixRecall @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
+      confusionMatrixP :: Map.Map (BDD.Class, BDD.Class) [BDD.BddRisk]
+      confusionMatrixP = Core.confusionMatrixPrecision @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
+  putStrLn $ printf "%-12s %s" "#Category" "AP"
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    let class' = BDD.cocoCategoryToClass cocoMap categoryId
+    putStrLn $ printf "%-12s %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) (ap Map.! class')
+  putStrLn $ printf "%-12s %.3f" "mAP" mAP
+  putStrLn ""
+
+  -- Print confusion matrix
+  putStrLn "#confusion matrix of recall: row is ground truth, column is prediction."
+  putStr $ printf "%-12s" "#GT \\ DT"
+  putStr $ printf "%-12s" "Backgroud"
+  let (!!) dat key = -- filter (\v -> v.risk > 0.1) $
+        fromMaybe [] (Map.lookup key dat)
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+  putStrLn ""
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    let classG = BDD.cocoCategoryToClass cocoMap categoryId
+    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+    putStr $ printf "%-12d" $ length $ confusionMatrixR !! (classG, BDD.Background)
+    forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
+      let classD = BDD.cocoCategoryToClass cocoMap categoryId'
+      putStr $ printf "%-12d" $ length $ confusionMatrixR !! (classG, classD)
+    putStrLn ""
+  putStrLn ""
+
+  putStrLn "#confusion matrix of precision: row is prediction, column is ground truth."
+  putStr $ printf "#%-11s" "DT \\ GT"
+  putStr $ printf "%-12s" "Backgroud"
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+  putStrLn ""
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    let classD = BDD.cocoCategoryToClass cocoMap categoryId
+    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+    putStr $ printf "%-12d" $ length (confusionMatrixP !! (classD, BDD.Background))
+    forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
+      let classG = BDD.cocoCategoryToClass cocoMap categoryId'
+      putStr $ printf "%-12d" $ length (confusionMatrixP !! (classD, classG))
+    putStrLn ""
+
 bddCommand :: RiskCommands
 bddCommand =
   RiskCommands
     { showRisk = RiskWeaver.Cmd.BDD.showRisk,
       showRiskWithError = RiskWeaver.Cmd.BDD.showRiskWithError,
       generateRiskWeightedDataset = RiskWeaver.Cmd.BDD.generateRiskWeightedDataset,
-      showDetectionImage = RiskWeaver.Cmd.BDD.showDetectionImage
+      showDetectionImage = RiskWeaver.Cmd.BDD.showDetectionImage,
+      evaluate = RiskWeaver.Cmd.BDD.evaluate
     }

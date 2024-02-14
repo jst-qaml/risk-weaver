@@ -107,8 +107,8 @@ class BoundingBox a where
 
   -- | Confusion matrix of recall
   confusionMatrixRecallBB :: Env a -> Map (ClassG a, ClassD a) [Risk a]
-  -- | Confusion matrix of accuracy
-  confusionMatrixAccuracyBB :: Env a -> Map (ClassD a, ClassG a) [Risk a]
+  -- | Confusion matrix of precision
+  confusionMatrixPrecisionBB :: Env a -> Map (ClassD a, ClassG a) [Risk a]
 
 -- | b includes ground-truth images and detection images.
 class World b a where
@@ -122,8 +122,8 @@ class World b a where
   risk :: b -> [Risk a]
   -- | Confusion matrix of recall
   confusionMatrixRecall :: b -> Map (ClassG a, ClassD a) [Risk a]
-  -- | Confusion matrix of accuracy
-  confusionMatrixAccuracy :: b -> Map (ClassD a, ClassG a) [Risk a]
+  -- | Confusion matrix of precision
+  confusionMatrixPrecision :: b -> Map (ClassD a, ClassG a) [Risk a]
 
 -- | Loop for ground truth
 loopG :: forall a m b. (BoundingBox a, Monad m) => (b -> b -> b) -> b -> (a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b

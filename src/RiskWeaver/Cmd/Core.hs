@@ -80,6 +80,7 @@ data RiskCommands =
     , showRiskWithError :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
     , generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
     , showDetectionImage :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
+    , evaluate :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
     }
 
 listImages :: Coco -> IO ()
@@ -129,53 +130,6 @@ listCocoResult cocoResults = do
   putStrLn "image_id\tcategory_id\tscore\tbbox"
   forM_ cocoResults $ \cocoResult -> do
     putStrLn $ show (cocoResultImageId cocoResult) ++ "\t" ++ show (cocoResultCategory cocoResult) ++ "\t" ++ show (cocoResultScore cocoResult) ++ "\t" ++ show (cocoResultBbox cocoResult)
-
-evaluate :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
-evaluate cocoMap iouThreshold scoreThresh mImageId = do
-  -- Print mAP
-  let iouThreshold' = case iouThreshold of
-        Nothing -> IOU 0.5
-        Just iouThreshold -> IOU iouThreshold
-      scoreThresh' = case scoreThresh of
-        Nothing -> Score 0.1
-        Just scoreThresh -> Score scoreThresh
-      mAP = Metric.mAP cocoMap iouThreshold'
-      confusionMatrix = Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
-  putStrLn $ printf "%-12s %s" "#Category" "AP"
-  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
-    putStrLn $ printf "%-12s %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) ((Map.fromList (snd mAP)) Map.! categoryId)
-  putStrLn $ printf "%-12s %.3f" "mAP" (fst mAP)
-  putStrLn ""
-
-  -- Print confusion matrix
-  putStrLn "#confusion matrix of recall: row is ground truth, column is prediction."
-  putStr $ printf "%-12s" "#GT \\ DT"
-  putStr $ printf "%-12s" "Backgroud"
-  let (!!) dat key = fromMaybe 0 (Map.lookup key dat)
-      (!!!) dat key = fromMaybe Map.empty (Map.lookup key dat)
-  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
-    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-  putStrLn ""
-  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
-    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-    putStr $ printf "%-12d" $ getSum (((confusionMatrixRecall confusionMatrix) !!! Gt categoryId) !! DtBackground)
-    forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
-      putStr $ printf "%-12d" $ getSum (((confusionMatrixRecall confusionMatrix) !!! Gt categoryId) !! (Dt categoryId'))
-    putStrLn ""
-  putStrLn ""
-
-  putStrLn "#confusion matrix of precision: row is prediction, column is ground truth."
-  putStr $ printf "#%-11s" "DT \\ GT"
-  putStr $ printf "%-12s" "Backgroud"
-  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
-    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-  putStrLn ""
-  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
-    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-    putStr $ printf "%-12d" $ getSum (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! GtBackground)
-    forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
-      putStr $ printf "%-12d" $ getSum (((confusionMatrixPrecision confusionMatrix) !!! (Dt categoryId)) !! (Gt categoryId'))
-    putStrLn ""
 
 bashCompletion :: IO ()
 bashCompletion = do
