@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE BangPatterns #-}
 
 module RiskWeaver.Cmd.BDD where
 
@@ -29,7 +30,13 @@ import RiskWeaver.Draw
 import RiskWeaver.Display (putImage)
 import System.FilePath (takeBaseName, takeDirectory, (</>))
 
-
+average :: forall a f . (Num a, Foldable f, Fractional a) => f a -> a
+average xs
+  | null xs = 0
+  | otherwise =
+      uncurry (/)
+    . foldl (\(!total, !count) x -> (total + x, count + 1)) (0,0)
+    $ xs
 
 showRisk :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
 showRisk cocoMap iouThreshold scoreThresh mImageId = do
@@ -73,7 +80,7 @@ showRiskWithError cocoMap iouThreshold scoreThresh mImageId = do
     forM_ risks $ \bddRisk -> do
       putStrLn $ printf "%-12d %-12s %.3f %-12s" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) bddRisk.risk (show bddRisk.riskType)
 
-resampleCocoMapWithImageIds :: CocoMap -> [ImageId] -> Coco
+resampleCocoMapWithImageIds :: CocoMap -> [ImageId] -> (Coco, [CocoResult])
 resampleCocoMapWithImageIds cocoMap imageIds =
   let zipedImageIds = zip [1 ..] imageIds
       newImageIds = (ImageId . fst) <$> zipedImageIds
@@ -97,7 +104,12 @@ resampleCocoMapWithImageIds cocoMap imageIds =
           { cocoImages = cocoImages',
             cocoAnnotations = cocoAnnotations'
           }
-   in newCoco
+      newCocoResult = concat $ flip map newImageIds $ \imageId ->
+        let orgImageId = imageIdsMap Map.! (unImageId imageId)
+            cocoResult = Map.findWithDefault [] orgImageId (cocoMapCocoResult cocoMap)
+            newCocoResult = map (\cocoResult -> cocoResult { cocoResultImageId = imageId }) cocoResult
+        in newCocoResult
+   in (newCoco, newCocoResult)
 
 generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
 generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
@@ -114,11 +126,10 @@ generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
         } 
   risks <- BDD.runRisk context
   let sumRisks = sum $ map snd risks
-      probabilitis = map (\(_, risk) -> risk / sumRisks) risks
-      accumulatedProbabilitis = scanl (+) 0 probabilitis
+      probs = map (\(_, risk) -> risk / sumRisks) risks
+      acc_probs = scanl (+) 0 probs
       numDatasets = length $ cocoMapImageIds cocoMap
       seed = mkStdGen 0
-
   -- Generate dataset by probability.
   -- The dataset's format is same as coco dataset.
   -- Accumurate probability
@@ -132,18 +143,18 @@ generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
   -- imageSets has accumulated probability and image id.
   -- It uses binary search to find image id by random number.
   let imageSets :: Vector (Double, ImageId)
-      imageSets = Vector.fromList $ zip accumulatedProbabilitis (cocoMapImageIds cocoMap)
+      imageSets = Vector.fromList $ zip acc_probs $ map fst risks
       findImageIdFromImageSets :: Vector (Double, ImageId) -> Double -> ImageId
       findImageIdFromImageSets imageSets randomNum =
         let (start, end) = (0, Vector.length imageSets - 1)
             findImageIdFromImageSets' :: Int -> Int -> ImageId
             findImageIdFromImageSets' start end =
               let mid = (start + end) `div` 2
-                  (accumulatedProbability, imageId) = imageSets Vector.! mid
+                  (acc_probs, imageId) = imageSets Vector.! mid
                in if start == end
                     then imageId
                     else
-                      if accumulatedProbability > randomNum
+                      if acc_probs > randomNum
                         then findImageIdFromImageSets' start mid
                         else findImageIdFromImageSets' (mid + 1) end
          in findImageIdFromImageSets' start end
@@ -154,15 +165,15 @@ generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
             imageId = findImageIdFromImageSets imageSets randNum
          in imageId : lotteryN numDatasets seed' (n - 1)
       imageIds = lotteryN numDatasets seed numDatasets
-      newCoco = resampleCocoMapWithImageIds cocoMap imageIds
+      (newCoco, newCocoResult) = resampleCocoMapWithImageIds cocoMap imageIds
   writeCoco cocoOutputFile newCoco
-
+  let newCocoMap = toCocoMap newCoco newCocoResult cocoOutputFile
+  RiskWeaver.Cmd.BDD.evaluate newCocoMap iouThreshold scoreThresh Nothing
 
 
 green = (0, 255, 0)
 red = (255, 0, 0)
 black = (0, 0, 0)
-
 
 showDetectionImage :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
 showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
@@ -265,17 +276,32 @@ evaluate cocoMap iouThreshold scoreThresh mImageId = do
         , bddContextIouThresh = iouThreshold'
         , bddContextScoreThresh = scoreThresh'
         } 
-      mAP = Core.mAP @BDD.BddContext @BDD.BoundingBoxGT context
-      ap = Core.ap @BDD.BddContext @BDD.BoundingBoxGT context
+      !mAP = Core.mAP @BDD.BddContext @BDD.BoundingBoxGT context
+      !ap = Core.ap @BDD.BddContext @BDD.BoundingBoxGT context
       confusionMatrixR :: Map.Map (BDD.Class, BDD.Class) [BDD.BddRisk]
-      confusionMatrixR = Core.confusionMatrixRecall @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
+      !confusionMatrixR = Core.confusionMatrixRecall @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
       confusionMatrixP :: Map.Map (BDD.Class, BDD.Class) [BDD.BddRisk]
-      confusionMatrixP = Core.confusionMatrixPrecision @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
+      !confusionMatrixP = Core.confusionMatrixPrecision @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
   putStrLn $ printf "%-12s %s" "#Category" "AP"
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     let class' = BDD.cocoCategoryToClass cocoMap categoryId
     putStrLn $ printf "%-12s %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) (ap Map.! class')
   putStrLn $ printf "%-12s %.3f" "mAP" mAP
+  putStrLn ""
+
+  -- Print risk scores statistically
+  risks <- BDD.runRisk context
+  putStrLn $ printf "%-12s %s" "#Risk" "AP"
+  let num_of_images = (length $ map snd risks)
+      max_risks = (maximum $ map snd risks)
+      sorted_risks = sortBy (\r1 r2 -> compare r2 r1) $ map snd risks
+      percentile_90 = take (num_of_images * 10 `div` 100) sorted_risks
+  putStrLn $ printf "%-12s %.2f" "total" (sum $ map snd risks)
+  putStrLn $ printf "%-12s %.2f" "maximum" max_risks
+  putStrLn $ printf "%-12s %.2f" "average" (average $ map snd risks)
+  putStrLn $ printf "%-12s %.2f" "minimum" (minimum $ map snd risks)
+  putStrLn $ printf "%-12s %.2f" "90percentile" $ head $ reverse percentile_90
+  putStrLn $ printf "%-12s %d" "num_of_images" num_of_images
   putStrLn ""
 
   -- Print confusion matrix
