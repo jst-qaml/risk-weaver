@@ -8,6 +8,8 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 
 module RiskWeaver.DSL.BDD where
@@ -15,6 +17,8 @@ module RiskWeaver.DSL.BDD where
 import Control.Monad (mapM, forM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReader, runReaderT)
+import Control.Parallel.Strategies
+import Control.DeepSeq
 import RiskWeaver.DSL.Core
 import Data.List qualified as List
 import Data.Map (Map)
@@ -28,6 +32,7 @@ import Data.Text qualified as T
 import RiskWeaver.Format.Coco
 import RiskWeaver.Metric
 import RiskWeaver.Pip
+import GHC.Generics
 
 data BoundingBoxGT = BoundingBoxGT
   { x :: Double,
@@ -37,7 +42,7 @@ data BoundingBoxGT = BoundingBoxGT
     cls :: Class,
     idx :: Int
   }
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, NFData)
 
 data Class
   = Background
@@ -49,14 +54,14 @@ data Class
   | Train
   | Motorcycle
   | Bicycle
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, NFData)
 
 data SubErrorType 
   = Boundary
   | LowScore
   | MissClass
   | Occulusion
-  deriving (Show, Ord, Eq)
+  deriving (Show, Ord, Eq, Generic, NFData)
 
 type BoundingBoxDT = Detection BoundingBoxGT
 
@@ -70,7 +75,7 @@ instance BoundingBox BoundingBoxGT where
       score :: Double,
       idx :: Int
     }
-    deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord, Generic, NFData)
   type ClassG _ = Class
   type ClassD _ = Class
   data ErrorType _
@@ -78,7 +83,7 @@ instance BoundingBox BoundingBoxGT where
     | FalseNegative (Set SubErrorType)
     | TruePositive
     | TrueNegative
-    deriving (Ord, Eq)
+    deriving (Ord, Eq, Generic, NFData)
   type InterestArea _ = [(Double, Double)]
   type InterestObject _ = Either BoundingBoxGT BoundingBoxDT -> Bool
   data Env _ = MyEnv
@@ -87,7 +92,7 @@ instance BoundingBox BoundingBoxGT where
       envConfidenceScoreThresh :: Double,
       envIoUThresh :: Double,
       envImageId :: Int
-    } deriving (Show, Ord, Eq)
+    } deriving (Show, Ord, Eq, Generic, NFData)
   type Idx _ = Int
   type Risk _ = BddRisk
 
@@ -206,7 +211,7 @@ data BddRisk =
     , risk :: Double
     , riskGt :: Maybe BoundingBoxGT
     , riskDt :: Maybe (Detection BoundingBoxGT)
-    } deriving (Show, Ord, Eq)
+    } deriving (Show, Ord, Eq, Generic, NFData)
 
 detectMaxIouG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
 detectMaxIouG env gt =
@@ -391,14 +396,10 @@ sortAndGroup assocs = Map.fromListWith (++) [(k, [v]) | (k, v) <- assocs]
 
 
 runRisk ::
-  BddContext ->
-  IO [(ImageId, Double)]
-runRisk context@BddContext{..} = do
-  forM (cocoMapImageIds bddContextDataset) $ \imageId -> do
-    let (groundTruth, detection) = cocoResultToVector bddContextDataset imageId
-    let env = contextToEnv context imageId
-    risk <- flip runReaderT env myRisk
-    return (imageId, foldl (\total l -> total + l.risk) 0 risk)
+  BddContext -> [(ImageId, Double)]
+runRisk context =
+  map (\(imageId, risks) -> (imageId, sum $ map (\r -> r.risk) risks)) (runRiskWithError context)
+  `using` parList rdeepseq
 
 contextToEnv :: BddContext -> ImageId -> Env BoundingBoxGT
 contextToEnv BddContext{..} imageId =
@@ -413,5 +414,6 @@ contextToEnv BddContext{..} imageId =
 
 runRiskWithError :: BddContext -> [(ImageId, [BddRisk])]
 runRiskWithError context@BddContext{..} =
-  flip map (cocoMapImageIds bddContextDataset) $ \imageId -> (imageId, riskE (contextToEnv context imageId))
+  map (\imageId -> (imageId, riskE (contextToEnv context imageId))) (cocoMapImageIds bddContextDataset)
+  `using` parList rdeepseq
 

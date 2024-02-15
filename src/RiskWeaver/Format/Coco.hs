@@ -7,11 +7,14 @@ Aeson is used for parsing JSON.
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE Strict #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module RiskWeaver.Format.Coco where
 
 import Codec.Picture.Metadata (Value (Double))
 import Control.Monad (ap)
+import Control.DeepSeq
+import Control.Concurrent.Async
 import Data.Aeson
 import Data.ByteString.Lazy qualified as BS
 import Data.List (maximumBy, sort, sortBy)
@@ -22,15 +25,11 @@ import Data.Text qualified as T
 import GHC.Generics
 import System.FilePath (takeBaseName, takeDirectory, (</>))
 
--- import Debug.Trace (trace)
--- myTrace :: Show a => String -> a -> a
--- myTrace s a = trace (s ++ ": " ++ show a) a
+newtype ImageId = ImageId {unImageId :: Int} deriving (Show, Ord, Eq, Generic, NFData)
 
-newtype ImageId = ImageId {unImageId :: Int} deriving (Show, Ord, Eq, Generic)
+newtype CategoryId = CategoryId {unCategoryId :: Int} deriving (Show, Ord, Eq, Generic, NFData)
 
-newtype CategoryId = CategoryId {unCategoryId :: Int} deriving (Show, Ord, Eq, Generic)
-
-newtype Score = Score {unScore :: Double} deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic)
+newtype Score = Score {unScore :: Double} deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic, NFData)
 
 instance FromJSON ImageId where
   parseJSON = withScientific "image_id" $ \n -> do
@@ -61,7 +60,7 @@ data CocoInfo = CocoInfo
     cocoInfoUrl :: Text,
     cocoInfoDateCreated :: Text
   }
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, NFData)
 
 instance FromJSON CocoInfo where
   parseJSON = withObject "info" $ \o -> do
@@ -89,7 +88,7 @@ data CocoLicense = CocoLicense
     cocoLicenseName :: Text,
     cocoLicenseUrl :: Text
   }
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, NFData)
 
 instance FromJSON CocoLicense where
   parseJSON = withObject "license" $ \o -> do
@@ -114,7 +113,7 @@ data CocoImage = CocoImage
     cocoImageLicense :: Maybe Int,
     cocoImageDateCoco :: Maybe Text
   }
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, NFData)
 
 instance FromJSON CocoImage where
   parseJSON = withObject "image" $ \o -> do
@@ -139,7 +138,7 @@ instance ToJSON CocoImage where
 
 newtype CoCoBoundingBox
   = CoCoBoundingBox (Double, Double, Double, Double)
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, NFData)
 
 -- (x, y, width, height)
 
@@ -152,7 +151,7 @@ data CocoAnnotation = CocoAnnotation
     cocoAnnotationBbox :: CoCoBoundingBox,
     cocoAnnotationIsCrowd :: Maybe Int
   }
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, NFData)
 
 instance FromJSON CocoAnnotation where
   parseJSON = withObject "annotation" $ \o -> do
@@ -182,7 +181,7 @@ data CocoCategory = CocoCategory
     cocoCategoryName :: Text,
     cocoCategorySupercategory :: Text
   }
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, NFData)
 
 instance FromJSON CocoCategory where
   parseJSON = withObject "category" $ \o -> do
@@ -206,7 +205,7 @@ data Coco = Coco
     cocoAnnotations :: [CocoAnnotation],
     cocoCategories :: [CocoCategory]
   }
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, NFData)
 
 instance FromJSON Coco where
   parseJSON = withObject "coco" $ \o -> do
@@ -235,7 +234,7 @@ data CocoResult = CocoResult
     cocoResultScore :: Score,
     cocoResultBbox :: CoCoBoundingBox
   }
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, NFData)
 
 instance FromJSON CocoResult where
   parseJSON = withObject "result" $ \o -> do
@@ -323,7 +322,7 @@ data CocoMap = CocoMap
     cocoMapCocoFile :: FilePath,
     cocoMapCocoResultFile :: FilePath
   }
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, NFData)
 
 getImageDir :: CocoMap -> FilePath
 getImageDir cocoMap =
@@ -364,17 +363,9 @@ toCocoMap coco cocoResult cocoFile cocoResultFile =
    in CocoMap {..}
 
 readCocoMap :: FilePath -> FilePath -> IO CocoMap
-readCocoMap cocoFile cocoResultFile = do
-  coco <- readCoco cocoFile
-  cocoResult <- readCocoResult cocoResultFile
-  return $ toCocoMap coco cocoResult cocoFile cocoResultFile
-
--- resampleCocoMapWithImageIds :: CocoMap -> [ImageId] -> CocoMap
--- resampleCocoMapWithImageIds cocoMap imageIds = do
---   let coco = Coco {
---     cocoInfo = cocoInfo cocoMap,
---     cocoLicenses = cocoLicenses cocoMap,
---     cocoImages = map (\imageId -> fromMaybe (error "resampleCocoMapWithImageIds: imageId not found") $ Map.lookup imageId $ cocoMapCocoImage cocoMap) imageIds,
---     cocoAnnotations = concat $ map (\imageId -> fromMaybe (error "resampleCocoMapWithImageIds: imageId not found") $ Map.lookup imageId $ cocoMapCocoAnnotation cocoMap) imageIds,
---     cocoCategories = cocoCategories cocoMap
---   }
+readCocoMap cocoFile cocoResultFile = 
+  withAsync (readCoco cocoFile) $ \coco' -> do
+  withAsync (readCocoResult cocoResultFile) $ \cocoResult' -> do
+    coco <- wait coco'
+    cocoResult <- wait cocoResult'
+    return $ toCocoMap coco cocoResult cocoFile cocoResultFile

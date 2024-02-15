@@ -3,11 +3,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module RiskWeaver.Cmd.BDD where
 
 import Control.Monad
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, runReader)
+import Control.Parallel.Strategies
+import Control.DeepSeq
 import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
 import Data.List (sortBy)
@@ -51,7 +54,7 @@ showRisk cocoMap iouThreshold scoreThresh mImageId = do
         , bddContextIouThresh = iouThreshold'
         , bddContextScoreThresh = scoreThresh'
         } 
-  risks <- BDD.runRisk context
+      risks = BDD.runRisk context
   putStrLn $ printf "%-12s %-12s %s" "#ImageId" "Filename" "Risk"
   let sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare risk2 risk1) risks
   forM_ sortedRisks $ \(imageId, risk) -> do
@@ -124,7 +127,7 @@ generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
         , bddContextIouThresh = iouThreshold'
         , bddContextScoreThresh = scoreThresh'
         } 
-  risks <- BDD.runRisk context
+      risks = BDD.runRisk context
   let sumRisks = sum $ map snd risks
       probs = map (\(_, risk) -> risk / sumRisks) risks
       acc_probs = scanl (+) 0 probs
@@ -276,12 +279,12 @@ evaluate cocoMap iouThreshold scoreThresh mImageId = do
         , bddContextIouThresh = iouThreshold'
         , bddContextScoreThresh = scoreThresh'
         } 
-      !mAP = Core.mAP @BDD.BddContext @BDD.BoundingBoxGT context
-      !ap = Core.ap @BDD.BddContext @BDD.BoundingBoxGT context
+      mAP = Core.mAP @BDD.BddContext @BDD.BoundingBoxGT context
+      ap = Core.ap @BDD.BddContext @BDD.BoundingBoxGT context
       confusionMatrixR :: Map.Map (BDD.Class, BDD.Class) [BDD.BddRisk]
-      !confusionMatrixR = Core.confusionMatrixRecall @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
+      confusionMatrixR = Core.confusionMatrixRecall @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
       confusionMatrixP :: Map.Map (BDD.Class, BDD.Class) [BDD.BddRisk]
-      !confusionMatrixP = Core.confusionMatrixPrecision @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
+      confusionMatrixP = Core.confusionMatrixPrecision @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
   putStrLn $ printf "#%-12s, %s" "CocoFile" cocoMap.cocoMapCocoFile
   putStrLn $ printf "#%-12s, %s" "CocoResultFile" cocoMap.cocoMapCocoResultFile
 
@@ -294,7 +297,7 @@ evaluate cocoMap iouThreshold scoreThresh mImageId = do
   putStrLn ""
 
   -- Print risk scores statistically
-  risks <- BDD.runRisk context
+  let risks = BDD.runRisk context
   putStrLn $ printf "%-12s" "#Risk"
   let num_of_images = (length $ map snd risks)
       max_risks = (maximum $ map snd risks)

@@ -56,10 +56,12 @@ library
                     , text >= 2.0.2 && < 2.1
                     , transformers >= 0.6.1 && < 0.7
                     , vector >= 0.13.1 && < 0.14
+                    , parallel >= 3.2.1 && < 3.3
+                    , deepseq >= 1.4.8 && < 1.5
+                    , async >= 2.2.1 && < 2.3
     hs-source-dirs:   src
     default-language: GHC2021
-    default-extensions:  Strict
-                       , StrictData
+    default-extensions:  StrictData
 executable risk-weaver-exe
     import:           warnings
     main-is:          Main.hs
@@ -67,9 +69,8 @@ executable risk-weaver-exe
                     , risk-weaver
     hs-source-dirs:   app
     default-language: GHC2021
-    ghc-options:      -rtsopts -threaded "-with-rtsopts=-A2g -N"
-    default-extensions:  Strict
-                       , StrictData
+    ghc-options:      -rtsopts -threaded "-with-rtsopts=-A1g -N2"
+    default-extensions:  StrictData
   
     
 test-suite risk-weaver-test
