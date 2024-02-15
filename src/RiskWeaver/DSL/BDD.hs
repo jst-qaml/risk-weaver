@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BangPatterns #-}
 
 
 module RiskWeaver.DSL.BDD where
@@ -148,16 +149,19 @@ instance BoundingBox BoundingBoxGT where
           (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
             * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
      in intersection / (g.w * g.h + d.w * d.h - intersection)
+  {-# INLINABLE ioU #-}
   ioG g d =
     let intersection =
           (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
             * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
      in intersection / (g.w * g.h)
+  {-# INLINABLE ioG #-}
   ioD g d =
     let intersection =
           (min (g.x + g.w) (d.x + d.w) - max g.x d.x)
             * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
      in intersection / (d.w * d.h)
+  {-# INLINABLE ioD #-}
   detectG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
   detectG env gt =
     let dts = detection env
@@ -182,10 +186,12 @@ instance BoundingBox BoundingBoxGT where
     Map.singleton (maybe Background classG riskGt,maybe Background classD riskDt) [bddRisk]
     where
       risksGt = runReader riskForGroundTruth env
+  {-# INLINABLE confusionMatrixRecallBB #-}
   confusionMatrixPrecisionBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksDt $ \bddRisk@BddRisk{..} ->
     Map.singleton (maybe Background classD riskDt,maybe Background classG riskGt) [bddRisk]
     where
       risksDt = runReader riskForDetection env
+  {-# INLINABLE confusionMatrixPrecisionBB #-}
 
   
 instance Show (ErrorType BoundingBoxGT) where
@@ -243,6 +249,7 @@ riskForGroundTruth = do
               (True,  True,  False, True ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = riskBias * 0.1, riskType = FalseNegative [Occulusion] }]
               (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = riskBias * 0.0001, riskType = TruePositive }]
               (_,     _,     False, False )-> return [BddRisk { riskGt = Just gt, riskDt = Nothing, risk = riskBias * 30, riskType = FalseNegative [] }]
+{-# INLINABLE riskForGroundTruth #-}
 
 riskForDetection :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
 riskForDetection = do
@@ -266,12 +273,14 @@ riskForDetection = do
               (True,  True,  True,  _    ) -> return [BddRisk { riskGt = Just gt, riskDt = Just dt, risk = riskBias * 0.0001, riskType = TruePositive }]
               (_,     True,  False, False )-> return [BddRisk { riskGt = Nothing, riskDt = Just dt, risk = riskBias * 5, riskType = FalsePositive [] }]
               (_,     False, _    ,  _    )-> return []
+{-# INLINABLE riskForDetection #-}
 
 myRisk :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
 myRisk = do
-  riskG <- riskForGroundTruth
-  riskD <- riskForDetection
+  !riskG <- riskForGroundTruth
+  !riskD <- riskForDetection
   return $ riskG <> riskD
+{-# INLINABLE myRisk #-}
 
 -- myRisk :: forall a m. (Fractional (Risk a), Num (Risk a), BoundingBox a, Monad m) => ReaderT (Env a) m (Risk a)
 -- myRisk = do
@@ -364,12 +373,22 @@ instance World BddContext BoundingBoxGT where
   mAP BddContext{..} = fst $ RiskWeaver.Metric.mAP bddContextDataset (IOU bddContextIouThresh)
   ap BddContext{..} = Map.fromList $ map (\(key,value) -> (cocoCategoryToClass bddContextDataset key, value) )$ snd $ RiskWeaver.Metric.mAP bddContextDataset (IOU bddContextIouThresh)
   risk context@BddContext{..} =  concat $ map snd $ runRiskWithError context
-  confusionMatrixRecall context@BddContext{..} = foldl (Map.unionWith (<>)) Map.empty risksGt
+  confusionMatrixRecall context@BddContext{..} = sortAndGroup risks
     where
-      risksGt = flip map (cocoMapImageIds bddContextDataset) $ \imageId -> confusionMatrixRecallBB (contextToEnv context imageId)
-  confusionMatrixPrecision context@BddContext{..} = foldl (Map.unionWith (<>)) Map.empty risksDt
+      risks :: [((Class, Class), BddRisk)]
+      risks = concat $ flip map (cocoMapImageIds bddContextDataset) $ \imageId -> map getKeyValue (runReader riskForGroundTruth (contextToEnv context imageId))
+      getKeyValue :: BddRisk -> ((Class, Class), BddRisk)
+      getKeyValue bddRisk@BddRisk{..} = ((maybe Background classG riskGt, maybe Background classD riskDt),bddRisk)
+  confusionMatrixPrecision context@BddContext{..} = sortAndGroup risks
     where
-      risksDt = flip map (cocoMapImageIds bddContextDataset) $ \imageId -> confusionMatrixPrecisionBB (contextToEnv context imageId)
+      risks :: [((Class, Class), BddRisk)]
+      risks = concat $ flip map (cocoMapImageIds bddContextDataset) $ \imageId -> map getKeyValue (runReader riskForDetection (contextToEnv context imageId))
+      getKeyValue :: BddRisk -> ((Class, Class), BddRisk)
+      getKeyValue bddRisk@BddRisk{..} = ((maybe Background classD riskDt, maybe Background classG riskGt),bddRisk)
+
+sortAndGroup :: Ord k => [(k,v)] -> Map k [v]
+sortAndGroup assocs = Map.fromListWith (++) [(k, [v]) | (k, v) <- assocs]
+
 
 runRisk ::
   BddContext ->

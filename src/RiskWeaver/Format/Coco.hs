@@ -320,7 +320,8 @@ data CocoMap = CocoMap
     cocoMapImageIds :: [ImageId],
     cocoMapCategoryIds :: [CategoryId],
     cocoMapCoco :: Coco,
-    cocoMapCocoFile :: FilePath
+    cocoMapCocoFile :: FilePath,
+    cocoMapCocoResultFile :: FilePath
   }
   deriving (Show, Eq, Generic)
 
@@ -347,8 +348,8 @@ instance CocoMapable ImageId where
     results <- Map.lookup imageId $ cocoMapCocoResult cocoMap
     return (image, results)
 
-toCocoMap :: Coco -> [CocoResult] -> FilePath -> CocoMap
-toCocoMap coco cocoResult cocoFile =
+toCocoMap :: Coco -> [CocoResult] -> FilePath -> FilePath -> CocoMap
+toCocoMap coco cocoResult cocoFile cocoResultFile =
   let cocoMapImageId = toImageId coco
       cocoMapCocoImage = toCocoImageMap coco
       cocoMapCocoAnnotation = toCocoAnnotationMap coco
@@ -359,13 +360,14 @@ toCocoMap coco cocoResult cocoFile =
       cocoMapCategoryIds = map (\CocoCategory {..} -> cocoCategoryId) $ cocoCategories coco
       cocoMapCoco = coco
       cocoMapCocoFile = cocoFile
+      cocoMapCocoResultFile = cocoResultFile
    in CocoMap {..}
 
 readCocoMap :: FilePath -> FilePath -> IO CocoMap
 readCocoMap cocoFile cocoResultFile = do
   coco <- readCoco cocoFile
   cocoResult <- readCocoResult cocoResultFile
-  return $ toCocoMap coco cocoResult cocoFile
+  return $ toCocoMap coco cocoResult cocoFile cocoResultFile
 
 -- resampleCocoMapWithImageIds :: CocoMap -> [ImageId] -> CocoMap
 -- resampleCocoMapWithImageIds cocoMap imageIds = do

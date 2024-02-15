@@ -167,7 +167,7 @@ generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
       imageIds = lotteryN numDatasets seed numDatasets
       (newCoco, newCocoResult) = resampleCocoMapWithImageIds cocoMap imageIds
   writeCoco cocoOutputFile newCoco
-  let newCocoMap = toCocoMap newCoco newCocoResult cocoOutputFile
+  let newCocoMap = toCocoMap newCoco newCocoResult cocoOutputFile ""
   RiskWeaver.Cmd.BDD.evaluate newCocoMap iouThreshold scoreThresh Nothing
 
 
@@ -282,60 +282,64 @@ evaluate cocoMap iouThreshold scoreThresh mImageId = do
       !confusionMatrixR = Core.confusionMatrixRecall @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
       confusionMatrixP :: Map.Map (BDD.Class, BDD.Class) [BDD.BddRisk]
       !confusionMatrixP = Core.confusionMatrixPrecision @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
-  putStrLn $ printf "%-12s %s" "#Category" "AP"
+  putStrLn $ printf "#%-12s, %s" "CocoFile" cocoMap.cocoMapCocoFile
+  putStrLn $ printf "#%-12s, %s" "CocoResultFile" cocoMap.cocoMapCocoResultFile
+
+
+  putStrLn $ printf "%-12s, %s" "#Category" "AP"
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     let class' = BDD.cocoCategoryToClass cocoMap categoryId
-    putStrLn $ printf "%-12s %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) (ap Map.! class')
-  putStrLn $ printf "%-12s %.3f" "mAP" mAP
+    putStrLn $ printf "%-12s, %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) (ap Map.! class')
+  putStrLn $ printf "%-12s, %.3f" "mAP" mAP
   putStrLn ""
 
   -- Print risk scores statistically
   risks <- BDD.runRisk context
-  putStrLn $ printf "%-12s %s" "#Risk" "AP"
+  putStrLn $ printf "%-12s" "#Risk"
   let num_of_images = (length $ map snd risks)
       max_risks = (maximum $ map snd risks)
       sorted_risks = sortBy (\r1 r2 -> compare r2 r1) $ map snd risks
       percentile_90 = take (num_of_images * 10 `div` 100) sorted_risks
-  putStrLn $ printf "%-12s %.2f" "total" (sum $ map snd risks)
-  putStrLn $ printf "%-12s %.2f" "maximum" max_risks
-  putStrLn $ printf "%-12s %.2f" "average" (average $ map snd risks)
-  putStrLn $ printf "%-12s %.2f" "minimum" (minimum $ map snd risks)
-  putStrLn $ printf "%-12s %.2f" "90percentile" $ head $ reverse percentile_90
-  putStrLn $ printf "%-12s %d" "num_of_images" num_of_images
+  putStrLn $ printf "%-12s, %.2f" "total" (sum $ map snd risks)
+  putStrLn $ printf "%-12s, %.2f" "maximum" max_risks
+  putStrLn $ printf "%-12s, %.2f" "average" (average $ map snd risks)
+  putStrLn $ printf "%-12s, %.2f" "minimum" (minimum $ map snd risks)
+  putStrLn $ printf "%-12s, %.2f" "90percentile" $ head $ reverse percentile_90
+  putStrLn $ printf "%-12s, %d" "num_of_images" num_of_images
   putStrLn ""
 
   -- Print confusion matrix
   putStrLn "#confusion matrix of recall: row is ground truth, column is prediction."
-  putStr $ printf "%-12s" "#GT \\ DT"
-  putStr $ printf "%-12s" "Backgroud"
+  putStr $ printf "%-12s," "#GT \\ DT"
+  putStr $ printf "%-12s," "Backgroud"
   let (!!) dat key = -- filter (\v -> v.risk > 0.1) $
         fromMaybe [] (Map.lookup key dat)
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
-    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+    putStr $ printf "%-12s," (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
   putStrLn ""
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     let classG = BDD.cocoCategoryToClass cocoMap categoryId
-    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-    putStr $ printf "%-12d" $ length $ confusionMatrixR !! (classG, BDD.Background)
+    putStr $ printf "%-12s," (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+    putStr $ printf "%-12d," $ length $ confusionMatrixR !! (classG, BDD.Background)
     forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
       let classD = BDD.cocoCategoryToClass cocoMap categoryId'
-      putStr $ printf "%-12d" $ length $ confusionMatrixR !! (classG, classD)
+      putStr $ printf "%-12d," $ length $ confusionMatrixR !! (classG, classD)
     putStrLn ""
   putStrLn ""
 
   putStrLn "#confusion matrix of precision: row is prediction, column is ground truth."
-  putStr $ printf "#%-11s" "DT \\ GT"
-  putStr $ printf "%-12s" "Backgroud"
+  putStr $ printf "#%-11s," "DT \\ GT"
+  putStr $ printf "%-12s," "Backgroud"
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
-    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+    putStr $ printf "%-12s," (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
   putStrLn ""
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     let classD = BDD.cocoCategoryToClass cocoMap categoryId
-    putStr $ printf "%-12s" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-    putStr $ printf "%-12d" $ length (confusionMatrixP !! (classD, BDD.Background))
+    putStr $ printf "%-12s," (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
+    putStr $ printf "%-12d," $ length (confusionMatrixP !! (classD, BDD.Background))
     forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
       let classG = BDD.cocoCategoryToClass cocoMap categoryId'
-      putStr $ printf "%-12d" $ length (confusionMatrixP !! (classD, classG))
+      putStr $ printf "%-12d," $ length (confusionMatrixP !! (classD, classG))
     putStrLn ""
 
 bddCommand :: RiskCommands
