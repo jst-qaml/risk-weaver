@@ -41,6 +41,7 @@ iou (CoCoBoundingBox (x1, y1, w1, h1)) (CoCoBoundingBox (x2, y2, w2, h2)) =
       intersection = max 0 (x' - x) * max 0 (y' - y)
       union = w1 * h1 + w2 * h2 - intersection
    in IOU $ intersection / union
+{-# INLINABLE iou #-}
 
 iog :: CoCoBoundingBox -> CoCoBoundingBox -> IOG
 iog (CoCoBoundingBox (x1, y1, w1, h1)) (CoCoBoundingBox (x2, y2, w2, h2)) =
@@ -55,6 +56,7 @@ iog (CoCoBoundingBox (x1, y1, w1, h1)) (CoCoBoundingBox (x2, y2, w2, h2)) =
       intersection = max 0 (x' - x) * max 0 (y' - y)
       groundTruth = w1 * h1
    in IOG $ intersection / groundTruth
+{-# INLINABLE iog #-}
 
 -- | Calculate TP or FP
 -- | TP = true positive

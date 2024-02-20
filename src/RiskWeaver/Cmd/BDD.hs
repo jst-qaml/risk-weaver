@@ -130,44 +130,23 @@ generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
       risks = BDD.runRisk context
   let sumRisks = sum $ map snd risks
       probs = map (\(_, risk) -> risk / sumRisks) risks
-      acc_probs = scanl (+) 0 probs
+      acc_probs =
+        let loop [] _ = []
+            loop (x:xs) s = (s,s+x): loop xs (s+x)
+        in loop probs 0
       numDatasets = length $ cocoMapImageIds cocoMap
-      seed = mkStdGen 0
-  -- Generate dataset by probability.
-  -- The dataset's format is same as coco dataset.
-  -- Accumurate probability
-  -- Gen sorted list by accumulated probability with image id.
-  -- Lottery by random number
-  -- Get image id by lottery
-  -- Generate random number between 0 and 1
-  -- Find accumulated probability that is greater than random number
-  -- Get image id by accumulated probability
-
-  -- imageSets has accumulated probability and image id.
-  -- It uses binary search to find image id by random number.
-  let imageSets :: Vector (Double, ImageId)
-      imageSets = Vector.fromList $ zip acc_probs $ map fst risks
-      findImageIdFromImageSets :: Vector (Double, ImageId) -> Double -> ImageId
-      findImageIdFromImageSets imageSets randomNum =
-        let (start, end) = (0, Vector.length imageSets - 1)
-            findImageIdFromImageSets' :: Int -> Int -> ImageId
-            findImageIdFromImageSets' start end =
-              let mid = (start + end) `div` 2
-                  (acc_probs, imageId) = imageSets Vector.! mid
-               in if start == end
-                    then imageId
-                    else
-                      if acc_probs > randomNum
-                        then findImageIdFromImageSets' start mid
-                        else findImageIdFromImageSets' (mid + 1) end
-         in findImageIdFromImageSets' start end
-      lotteryN :: Int -> StdGen -> Int -> [ImageId]
-      lotteryN _ _ 0 = []
-      lotteryN numDatasets seed n =
-        let (randNum, seed') = randomR (0, 1) seed
-            imageId = findImageIdFromImageSets imageSets randNum
-         in imageId : lotteryN numDatasets seed' (n - 1)
-      imageIds = lotteryN numDatasets seed numDatasets
+  let imageSets :: [((Double, Double), ImageId)]
+      imageSets = zip acc_probs $ map fst risks
+      resample [] _ _ = []
+      resample s@(((x,y),img):xs) n end =
+        if n == end then []
+        else
+          let p = (fromIntegral n :: Double) / (fromIntegral numDatasets :: Double)
+          in
+            if x<= p && p < y
+            then img : resample s (n+1) end
+            else resample xs n end
+      imageIds = resample imageSets 0 numDatasets
       (newCoco, newCocoResult) = resampleCocoMapWithImageIds cocoMap imageIds
   writeCoco cocoOutputFile newCoco
   let newCocoMap = toCocoMap newCoco newCocoResult cocoOutputFile ""

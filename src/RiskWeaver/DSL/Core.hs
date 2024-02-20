@@ -130,9 +130,11 @@ loopG :: forall a m b. (BoundingBox a, Monad m) => (b -> b -> b) -> b -> (a -> R
 loopG add init fn = do
   env <- ask
   foldl add init <$> mapM fn (groundTruth @a env)
+{-# INLINABLE loopG #-}
 
 -- | Loop for detection
 loopD :: forall a m b. (BoundingBox a, Monad m) => (b -> b -> b) -> b -> (Detection a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b
 loopD add init fn = do
   env <- ask
   foldl add init <$> mapM fn (detection @a env)
+{-# INLINABLE loopD #-}
