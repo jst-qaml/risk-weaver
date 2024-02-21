@@ -159,6 +159,12 @@ class World b a where
   -- | AP of the images for each class
   ap :: b -> Map (ClassG a) Double
 
+  -- | mF1 of the images
+  mF1 :: b -> Double
+
+  -- | F1 of the images for each class
+  f1 :: b -> Map (ClassG a) Double
+
   -- | Risk of the images
   risk :: b -> [Risk a]
 

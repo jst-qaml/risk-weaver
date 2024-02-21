@@ -214,15 +214,45 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
           -- let resizedImage = resizeRGB8 groundTruthImage.imageWidth groundTruthImage.imageHeight True concatImage
           putImage (Right concatImage)
 
+(!!!) :: forall a b. Ord b => Map.Map b [a] -> b -> [a]
+(!!!) dat key = fromMaybe [] (Map.lookup key dat)
+
 evaluate :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
 evaluate cocoMap iouThreshold scoreThresh = do
   let context = toBddContext cocoMap iouThreshold scoreThresh
       mAP = Core.mAP @BDD.BddContext @BDD.BoundingBoxGT context
       ap' = Core.ap @BDD.BddContext @BDD.BoundingBoxGT context
+      f1 = Core.f1 @BDD.BddContext @BDD.BoundingBoxGT context
+      mF1 = Core.mF1 @BDD.BddContext @BDD.BoundingBoxGT context
       confusionMatrixR :: Map.Map (BDD.Class, BDD.Class) [BDD.BddRisk]
       confusionMatrixR = Core.confusionMatrixRecall @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
       confusionMatrixP :: Map.Map (BDD.Class, BDD.Class) [BDD.BddRisk]
       confusionMatrixP = Core.confusionMatrixPrecision @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
+      confusionMatrixR_cnt :: Map.Map (BDD.Class, BDD.Class) Int
+      confusionMatrixR_cnt = Map.fromList $ concat $
+        flip map (cocoMapCategoryIds cocoMap) $ \categoryId ->
+          let classG = BDD.cocoCategoryToClass cocoMap categoryId
+              keyBG = (classG, BDD.Background)
+              toBG = (keyBG, length $ confusionMatrixR !!! keyBG)
+              toClasses =
+                flip map (cocoMapCategoryIds cocoMap) $ \categoryId' ->
+                  let classD = BDD.cocoCategoryToClass cocoMap categoryId'
+                      keyCl = (classG, classD)
+                  in (keyCl, length $ confusionMatrixR !!! keyCl)
+          in toBG: toClasses
+      confusionMatrixP_cnt :: Map.Map (BDD.Class, BDD.Class) Int
+      confusionMatrixP_cnt = Map.fromList $ concat $
+        flip map (cocoMapCategoryIds cocoMap) $ \categoryId ->
+          let classD = BDD.cocoCategoryToClass cocoMap categoryId
+              keyBG = (classD, BDD.Background)
+              toBG = (keyBG, length $ confusionMatrixP !!! keyBG)
+              toClasses =
+                flip map (cocoMapCategoryIds cocoMap) $ \categoryId' ->
+                  let classG = BDD.cocoCategoryToClass cocoMap categoryId'
+                      keyCl = (classD, classG)
+                  in (keyCl, length $ confusionMatrixP !!! keyCl)
+          in toBG: toClasses
+        
   putStrLn $ printf "#%-12s, %s" "CocoFile" cocoMap.cocoMapCocoFile
   putStrLn $ printf "#%-12s, %s" "CocoResultFile" cocoMap.cocoMapCocoResultFile
 
@@ -252,19 +282,16 @@ evaluate cocoMap iouThreshold scoreThresh = do
   putStrLn "#confusion matrix of recall: row is ground truth, column is prediction."
   putStr $ printf "%-12s," "#GT \\ DT"
   putStr $ printf "%-12s," "Backgroud"
-  let (!!!) dat key =
-        -- filter (\v -> v.risk > 0.1) $
-        fromMaybe [] (Map.lookup key dat)
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     putStr $ printf "%-12s," (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
   putStrLn ""
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     let classG = BDD.cocoCategoryToClass cocoMap categoryId
     putStr $ printf "%-12s," (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-    putStr $ printf "%-12d," $ length $ confusionMatrixR !!! (classG, BDD.Background)
+    putStr $ printf "%-12d," $ confusionMatrixR_cnt Map.! (classG, BDD.Background)
     forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
       let classD = BDD.cocoCategoryToClass cocoMap categoryId'
-      putStr $ printf "%-12d," $ length $ confusionMatrixR !!! (classG, classD)
+      putStr $ printf "%-12d," $ confusionMatrixR_cnt Map.! (classG, classD)
     putStrLn ""
   putStrLn ""
 
@@ -277,11 +304,23 @@ evaluate cocoMap iouThreshold scoreThresh = do
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     let classD = BDD.cocoCategoryToClass cocoMap categoryId
     putStr $ printf "%-12s," (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))
-    putStr $ printf "%-12d," $ length (confusionMatrixP !!! (classD, BDD.Background))
+    putStr $ printf "%-12d," $ confusionMatrixP_cnt Map.! (classD, BDD.Background)
     forM_ (cocoMapCategoryIds cocoMap) $ \categoryId' -> do
       let classG = BDD.cocoCategoryToClass cocoMap categoryId'
-      putStr $ printf "%-12d," $ length (confusionMatrixP !!! (classD, classG))
+      putStr $ printf "%-12d," $ confusionMatrixP_cnt Map.! (classD, classG)
     putStrLn ""
+  putStrLn ""
+
+  -- Print F1 scores
+  putStrLn "#F1 Scores"
+  forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
+    let class' = BDD.cocoCategoryToClass cocoMap categoryId
+    putStrLn $ printf "%-12s, %.3f" (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId))) (f1 Map.! class')
+  putStrLn $ printf "%-12s, %.3f" "mF1" mF1
+  putStrLn ""
+  putStrLn ""
+
+
 
 bddCommand :: RiskCommands
 bddCommand =

@@ -133,6 +133,40 @@ mAP cocoMap@CocoMap {..} iouThresh =
       aps' = aps `using` parList rdeepseq
    in (sum aps' / fromIntegral (length aps'), zip categoryIds aps')
 
+
+f1ForCategory :: CocoMap -> CategoryId -> IOU -> Score -> Double
+f1ForCategory cocoMap@CocoMap {..} categoryId iouThresh scoreThresh =
+  let imageIds = cocoMapImageIds
+      tpAndFps' =
+        map (\imageId -> toTPorFP cocoMap imageId categoryId iouThresh) imageIds
+          `using` parList rdeepseq
+      numOfGroundTruths = sum $ map snd tpAndFps'
+      tpAndFps = sortBy (\res0 res1 -> compare (cocoResultScore (fst res1)) (cocoResultScore (fst res0))) $ concat $ map fst tpAndFps'
+      precisionRecallCurve :: [(CocoResult, Bool)] -> Int -> Int -> [(Double, Double, Score)]
+      precisionRecallCurve [] _ _ = []
+      precisionRecallCurve (x : xs) accTps accNum =
+        (precision, recall, cocoResultScore (fst x)) : precisionRecallCurve xs accTps' accNum'
+        where
+          accTps' = if snd x then accTps + 1 else accTps
+          accNum' = accNum + 1
+          precision = fromIntegral accTps' / fromIntegral accNum'
+          recall = fromIntegral accTps' / fromIntegral numOfGroundTruths
+      precisionRecallCurve' = reverse $ precisionRecallCurve tpAndFps 0 0
+      f1 :: [(Double, Double, Score)] -> Double
+      f1 [] = 0
+      f1 ((precision, recall, score) : xs) = 
+        if score >= scoreThresh
+          then 2 * (precision * recall) / (precision + recall)
+          else f1 xs
+   in f1 precisionRecallCurve'
+
+mF1 :: CocoMap -> IOU -> Score -> (Double, [(CategoryId, Double)])
+mF1 cocoMap@CocoMap {..} iouThresh scoreThresh =
+  let categoryIds = cocoMapCategoryIds
+      f1s = map (\categoryId -> f1ForCategory cocoMap categoryId iouThresh scoreThresh) categoryIds
+      f1s' = f1s `using` parList rdeepseq
+   in (sum f1s' / fromIntegral (length f1s'), zip categoryIds f1s')
+
 -- data ConfusionMatrix a = ConfusionMatrix
 --   { confusionMatrixRecall :: Map.Map (Gt CategoryId) (Map.Map (Dt CategoryId) a),
 --     confusionMatrixPrecision :: Map.Map (Dt CategoryId) (Map.Map (Gt CategoryId) a),

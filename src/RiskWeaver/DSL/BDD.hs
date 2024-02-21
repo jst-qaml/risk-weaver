@@ -376,6 +376,8 @@ instance World BddContext BoundingBoxGT where
       bddContextDataset.cocoMapImageIds
   mAP BddContext {..} = fst $ RiskWeaver.Metric.mAP bddContextDataset (IOU bddContextIouThresh)
   ap BddContext {..} = Map.fromList $ map (\(key, value) -> (cocoCategoryToClass bddContextDataset key, value)) $ snd $ RiskWeaver.Metric.mAP bddContextDataset (IOU bddContextIouThresh)
+  mF1 BddContext {..} = fst $ RiskWeaver.Metric.mF1 bddContextDataset (IOU bddContextIouThresh) (Score bddContextScoreThresh)
+  f1 BddContext {..} = Map.fromList $ map (\(key, value) -> (cocoCategoryToClass bddContextDataset key, value)) $ snd $ RiskWeaver.Metric.mF1 bddContextDataset (IOU bddContextIouThresh) (Score bddContextScoreThresh)
   risk context = concat $ map snd $ runRiskWithError context
   confusionMatrixRecall context@BddContext {..} = sortAndGroup risks
     where
