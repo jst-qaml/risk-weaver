@@ -46,15 +46,21 @@ drawBoundingBox imageBin annotations categories = do
     drawString (T.unpack (cocoCategoryName (categories Map.! cocoAnnotationCategory annotation))) x y (255, 0, 0) (0, 0, 0) imageRGB8
   return imageRGB8
 
-drawDetectionBoundingBox
- :: Show a
- => DynamicImage -- ^ Image
- -> [CocoResult] -- ^ A list of Coco result
- -> [a] -- ^ A list of object property
- -> Map.Map CategoryId CocoCategory -- ^ A map of category
- -> Maybe Double -- ^ Score threshold
- -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -- ^ Overlay function to draw object property
- -> IO (Image PixelRGB8)
+drawDetectionBoundingBox ::
+  (Show a) =>
+  -- | Image
+  DynamicImage ->
+  -- | A list of Coco result
+  [CocoResult] ->
+  -- | A list of object property
+  [a] ->
+  -- | A map of category
+  Map.Map CategoryId CocoCategory ->
+  -- | Score threshold
+  Maybe Double ->
+  -- | Overlay function to draw object property
+  Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) ->
+  IO (Image PixelRGB8)
 drawDetectionBoundingBox imageBin annotations properties categories scoreThreshold overlay = do
   let imageRGB8 = convertRGB8 imageBin
       zipedAnnotations = zip annotations $
@@ -112,7 +118,7 @@ showImage coco cocoFile imageFile enableBoundingBox = do
     else do
       putImage (Left imagePath)
 
-showDetectionImage :: Show a => CocoMap -> FilePath -> Maybe Double -> [a] -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -> IO ()
+showDetectionImage :: (Show a) => CocoMap -> FilePath -> Maybe Double -> [a] -> Maybe (Image PixelRGB8 -> a -> IO (Image PixelRGB8)) -> IO ()
 showDetectionImage cocoMap imageFile scoreThreshold properties overlay = do
   let imagePath = getImageDir cocoMap </> imageFile
   let image' = getCocoResult cocoMap imageFile

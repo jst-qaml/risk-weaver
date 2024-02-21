@@ -1,6 +1,6 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE OverloadedRecordDot #-}
 
 module RiskWeaver.Cmd.Core where
 
@@ -8,10 +8,9 @@ import Control.Monad
 import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
 import Data.Text qualified as T
+import Options.Applicative
 import RiskWeaver.Display
 import RiskWeaver.Format.Coco
-import Options.Applicative
-
 
 data CocoCommand
   = ListImages {cocoFile :: FilePath}
@@ -58,14 +57,13 @@ data CocoCommand
   | BashCompletion
   deriving (Show, Eq)
 
-data RiskCommands = 
-  RiskCommands
-    { showRisk :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
-    , showRiskWithError :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
-    , generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
-    , showDetectionImage :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
-    , evaluate :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
-    }
+data RiskCommands = RiskCommands
+  { showRisk :: CocoMap -> Maybe Double -> Maybe Double -> IO (),
+    showRiskWithError :: CocoMap -> Maybe Double -> Maybe Double -> IO (),
+    generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO (),
+    showDetectionImage :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO (),
+    evaluate :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
+  }
 
 listImages :: Coco -> IO ()
 listImages coco = do

@@ -10,8 +10,8 @@ import Control.Parallel.Strategies
 import Data.List (maximumBy, sortBy)
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
-import RiskWeaver.Format.Coco
 import GHC.Generics
+import RiskWeaver.Format.Coco
 
 newtype IOU = IOU Double deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic)
 
@@ -40,7 +40,7 @@ iou (CoCoBoundingBox (x1, y1, w1, h1)) (CoCoBoundingBox (x2, y2, w2, h2)) =
       intersection = max 0 (x' - x) * max 0 (y' - y)
       union = w1 * h1 + w2 * h2 - intersection
    in IOU $ intersection / union
-{-# INLINABLE iou #-}
+{-# INLINEABLE iou #-}
 
 iog :: CoCoBoundingBox -> CoCoBoundingBox -> IOG
 iog (CoCoBoundingBox (x1, y1, w1, h1)) (CoCoBoundingBox (x2, y2, w2, h2)) =
@@ -55,7 +55,7 @@ iog (CoCoBoundingBox (x1, y1, w1, h1)) (CoCoBoundingBox (x2, y2, w2, h2)) =
       intersection = max 0 (x' - x) * max 0 (y' - y)
       groundTruth = w1 * h1
    in IOG $ intersection / groundTruth
-{-# INLINABLE iog #-}
+{-# INLINEABLE iog #-}
 
 -- | Calculate TP or FP
 -- | TP = true positive
@@ -103,7 +103,7 @@ apForCategory cocoMap@CocoMap {..} categoryId iouThresh =
   let imageIds = cocoMapImageIds
       tpAndFps' =
         map (\imageId -> toTPorFP cocoMap imageId categoryId iouThresh) imageIds
-        `using` parList rdeepseq
+          `using` parList rdeepseq
       numOfGroundTruths = sum $ map snd tpAndFps'
       tpAndFps = sortBy (\res0 res1 -> compare (cocoResultScore (fst res1)) (cocoResultScore (fst res0))) $ concat $ map fst tpAndFps'
       precisionRecallCurve :: [(CocoResult, Bool)] -> Int -> Int -> [(Double, Double)]

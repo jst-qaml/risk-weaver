@@ -1,19 +1,19 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-
 This module provides COCO format parser of object detection dataset.
 Aeson is used for parsing JSON.
 -}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE Strict #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module RiskWeaver.Format.Coco where
 
-import Control.DeepSeq
 import Control.Concurrent.Async
+import Control.DeepSeq
 import Data.Aeson
 import Data.ByteString.Lazy qualified as BS
 import Data.Map qualified as Map
@@ -27,8 +27,6 @@ newtype ImageId = ImageId {unImageId :: Int} deriving (Show, Ord, Eq, Generic, N
 newtype CategoryId = CategoryId {unCategoryId :: Int} deriving (Show, Ord, Eq, Generic, NFData)
 
 newtype Score = Score {unScore :: Double} deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic, NFData)
-
-
 
 instance FromJSON ImageId where
   parseJSON = withScientific "image_id" $ \n -> do
@@ -169,11 +167,13 @@ instance FromJSON CocoAnnotation where
     cocoAnnotationCategory <- o .: "category_id"
     cocoAnnotationSegment <- o .:? "segmentation"
     cocoAnnotationArea <- o .: "area"
-    cocoAnnotationBbox <- fmap (
-      \case
-        x: y: w: h: _ -> CoCoBoundingBox (x, y, w, h)
-        v -> error $ "Annotation's bounding box needs 4 numbers. : " ++ show v
-      ) $ o .: "bbox"
+    cocoAnnotationBbox <-
+      fmap
+        ( \case
+            x : y : w : h : _ -> CoCoBoundingBox (x, y, w, h)
+            v -> error $ "Annotation's bounding box needs 4 numbers. : " ++ show v
+        )
+        $ o .: "bbox"
     cocoAnnotationIsCrowd <- o .:? "iscrowd"
     return CocoAnnotation {..}
 
@@ -260,11 +260,13 @@ instance FromJSON CocoResult where
     cocoResultImageId <- o .: "image_id"
     cocoResultCategory <- o .: "category_id"
     cocoResultScore <- o .: "score"
-    cocoResultBbox <- fmap (
-      \case
-       x: y: w: h: _ -> CoCoBoundingBox (x, y, w, h)
-       v -> error $ "Annotation's bounding box needs 4 numbers. : " ++ show v
-      ) $ o .: "bbox"
+    cocoResultBbox <-
+      fmap
+        ( \case
+            x : y : w : h : _ -> CoCoBoundingBox (x, y, w, h)
+            v -> error $ "Annotation's bounding box needs 4 numbers. : " ++ show v
+        )
+        $ o .: "bbox"
     return CocoResult {..}
 
 instance ToJSON CocoResult where
@@ -353,7 +355,7 @@ getImageDir :: CocoMap -> FilePath
 getImageDir cocoMap =
   let cocoFileNameWithoutExtension = takeBaseName $ cocoMapCocoFile cocoMap
       imageDir = takeDirectory (takeDirectory $ cocoMapCocoFile cocoMap) </> cocoFileNameWithoutExtension </> "images"
-  in imageDir
+   in imageDir
 
 class CocoMapable a where
   getCocoResult :: CocoMap -> a -> Maybe (CocoImage, [CocoResult])
@@ -388,9 +390,9 @@ toCocoMap coco cocoResult cocoFile cocoResultFile =
    in CocoMap {..}
 
 readCocoMap :: FilePath -> FilePath -> IO CocoMap
-readCocoMap cocoFile cocoResultFile = 
+readCocoMap cocoFile cocoResultFile =
   withAsync (readCoco cocoFile) $ \coco' -> do
-  withAsync (readCocoResult cocoResultFile) $ \cocoResult' -> do
-    coco <- wait coco'
-    cocoResult <- wait cocoResult'
-    return $ toCocoMap coco cocoResult cocoFile cocoResultFile
+    withAsync (readCocoResult cocoResultFile) $ \cocoResult' -> do
+      coco <- wait coco'
+      cocoResult <- wait cocoResult'
+      return $ toCocoMap coco cocoResult cocoFile cocoResultFile

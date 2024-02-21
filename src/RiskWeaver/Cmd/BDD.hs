@@ -1,36 +1,36 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveGeneric #-}
 
 module RiskWeaver.Cmd.BDD where
 
-import Control.Monad.Trans.Reader (runReader)
+import Codec.Picture
 import Control.Monad
+import Control.Monad.Trans.Reader (runReader)
 import Data.List (sortBy)
 import Data.Map qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Vector qualified as Vector
-import Data.Maybe (fromMaybe)
 import RiskWeaver.Cmd.Core (RiskCommands (..))
 import RiskWeaver.DSL.BDD qualified as BDD
 import RiskWeaver.DSL.Core qualified as Core
-import RiskWeaver.Format.Coco
-import Text.Printf
-import Codec.Picture
-import RiskWeaver.Draw
 import RiskWeaver.Display (putImage)
+import RiskWeaver.Draw
+import RiskWeaver.Format.Coco
 import System.FilePath ((</>))
+import Text.Printf
 
-average :: forall a f . (Num a, Foldable f, Fractional a) => f a -> a
+average :: forall a f. (Num a, Foldable f, Fractional a) => f a -> a
 average xs
   | null xs = 0
   | otherwise =
       uncurry (/)
-    . foldl (\(!total, !count) x -> (total + x, count + 1)) (0,0)
-    $ xs
+        . foldl (\(!total, !count) x -> (total + x, count + 1)) (0, 0)
+        $ xs
 
 toBddContext :: CocoMap -> Maybe Double -> Maybe Double -> BDD.BddContext
 toBddContext cocoMap iouThreshold scoreThresh =
@@ -40,13 +40,13 @@ toBddContext cocoMap iouThreshold scoreThresh =
       scoreThresh'' = case scoreThresh of
         Nothing -> 0.4
         Just scoreThresh' -> scoreThresh'
-      context = BDD.BddContext
-        { bddContextDataset = cocoMap
-        , bddContextIouThresh = iouThreshold''
-        , bddContextScoreThresh = scoreThresh''
-        } 
-  in context
-  
+      context =
+        BDD.BddContext
+          { bddContextDataset = cocoMap,
+            bddContextIouThresh = iouThreshold'',
+            bddContextScoreThresh = scoreThresh''
+          }
+   in context
 
 showRisk :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
 showRisk cocoMap iouThreshold scoreThresh = do
@@ -75,20 +75,23 @@ resampleCocoMapWithImageIds cocoMap imageIds =
   let zipedImageIds = zip [1 ..] imageIds
       newImageIds = (ImageId . fst) <$> zipedImageIds
       imageIdsMap = Map.fromList zipedImageIds
-      cocoImages' = map (\imageId -> 
-        let orgImageId = imageIdsMap Map.! (unImageId imageId)
-            img = (cocoMapCocoImage cocoMap) Map.! orgImageId
-        in img { cocoImageId = imageId}
-        ) newImageIds
-      cocoAnnotations' = 
-        let annotations'= concat $ flip map newImageIds $ \imageId ->
+      cocoImages' =
+        map
+          ( \imageId ->
+              let orgImageId = imageIdsMap Map.! (unImageId imageId)
+                  img = (cocoMapCocoImage cocoMap) Map.! orgImageId
+               in img {cocoImageId = imageId}
+          )
+          newImageIds
+      cocoAnnotations' =
+        let annotations' = concat $ flip map newImageIds $ \imageId ->
               let orgImageId = imageIdsMap Map.! (unImageId imageId)
                   annotations = Map.findWithDefault [] orgImageId (cocoMapCocoAnnotation cocoMap)
-                  newAnnotations = map (\annotation -> annotation { cocoAnnotationImageId = imageId }) annotations
-              in newAnnotations
+                  newAnnotations = map (\annotation -> annotation {cocoAnnotationImageId = imageId}) annotations
+               in newAnnotations
             zippedAnnotations = zip [1 ..] annotations'
-            alignedAnnotations = map (\(newId, annotation) -> annotation { cocoAnnotationId = newId }) zippedAnnotations
-        in alignedAnnotations
+            alignedAnnotations = map (\(newId, annotation) -> annotation {cocoAnnotationId = newId}) zippedAnnotations
+         in alignedAnnotations
       newCoco =
         (cocoMapCoco cocoMap)
           { cocoImages = cocoImages',
@@ -97,8 +100,8 @@ resampleCocoMapWithImageIds cocoMap imageIds =
       newCocoResult = concat $ flip map newImageIds $ \imageId ->
         let orgImageId = imageIdsMap Map.! (unImageId imageId)
             cocoResult = Map.findWithDefault [] orgImageId (cocoMapCocoResult cocoMap)
-            newCocoResult' = map (\cocoResult' -> cocoResult' { cocoResultImageId = imageId }) cocoResult
-        in newCocoResult'
+            newCocoResult' = map (\cocoResult' -> cocoResult' {cocoResultImageId = imageId}) cocoResult
+         in newCocoResult'
    in (newCoco, newCocoResult)
 
 generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
@@ -109,31 +112,32 @@ generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
       probs = map (\(_, risk) -> risk / sumRisks) risks
       acc_probs =
         let loop [] _ = []
-            loop (x:xs) s = (s,s+x): loop xs (s+x)
-        in loop probs 0
+            loop (x : xs) s = (s, s + x) : loop xs (s + x)
+         in loop probs 0
       numDatasets = length $ cocoMapImageIds cocoMap
   let imageSets :: [((Double, Double), ImageId)]
       imageSets = zip acc_probs $ map fst risks
       resample [] _ _ = []
-      resample s@(((x,y),img):xs) n end =
-        if n == end then []
-        else
-          let p = (fromIntegral n :: Double) / (fromIntegral numDatasets :: Double)
-          in
-            if x<= p && p < y
-            then img : resample s (n+1) end
-            else resample xs n end
+      resample s@(((x, y), img) : xs) n end =
+        if n == end
+          then []
+          else
+            let p = (fromIntegral n :: Double) / (fromIntegral numDatasets :: Double)
+             in if x <= p && p < y
+                  then img : resample s (n + 1) end
+                  else resample xs n end
       imageIds = resample imageSets 0 numDatasets
       (newCoco, newCocoResult) = resampleCocoMapWithImageIds cocoMap imageIds
   writeCoco cocoOutputFile newCoco
   let newCocoMap = toCocoMap newCoco newCocoResult cocoOutputFile ""
   RiskWeaver.Cmd.BDD.evaluate newCocoMap iouThreshold scoreThresh
 
-
 green :: (Int, Int, Int)
 green = (0, 255, 0)
+
 red :: (Int, Int, Int)
 red = (255, 0, 0)
+
 black :: (Int, Int, Int)
 black = (0, 0, 0)
 
@@ -160,7 +164,7 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
           let imageRGB8 = convertRGB8 imageBin
           groundTruthImage <- cloneImage imageRGB8
           detectionImage <- cloneImage imageRGB8
-          forM_ riskG $ \BDD.BddRisk{..} -> do
+          forM_ riskG $ \BDD.BddRisk {..} -> do
             case riskGt of
               Nothing -> return ()
               Just riskGt' -> do
@@ -177,13 +181,13 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
                             _ -> red
                       drawRect x y (x + width) (y + height) color groundTruthImage
                       drawString (show category) x y color black groundTruthImage
-                      drawString (printf "%.2f" risk) x (y+10) color black groundTruthImage
-                      drawString (show riskType) x (y+20) color black groundTruthImage
-                      -- Use printf format to show score
-                      -- drawString (printf "%.2f" (unScore $ riskGt.score)) x (y + 10) green black imageRGB8
+                      drawString (printf "%.2f" risk) x (y + 10) color black groundTruthImage
+                      drawString (show riskType) x (y + 20) color black groundTruthImage
+                -- Use printf format to show score
+                -- drawString (printf "%.2f" (unScore $ riskGt.score)) x (y + 10) green black imageRGB8
                 -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
-                draw         
-          forM_ riskD $ \BDD.BddRisk{..} -> do
+                draw
+          forM_ riskD $ \BDD.BddRisk {..} -> do
             case riskDt of
               Nothing -> return ()
               Just riskDt' -> do
@@ -201,15 +205,14 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
                       drawRect x y (x + width) (y + height) color detectionImage
                       drawString (show category) x y color black detectionImage
                       drawString (printf "%.2f" (annotation.score)) x (y + 10) color black detectionImage
-                      drawString (printf "%.2f" risk) x (y+20) color black detectionImage
-                      drawString (show riskType) x (y+30) color black detectionImage
+                      drawString (printf "%.2f" risk) x (y + 20) color black detectionImage
+                      drawString (show riskType) x (y + 30) color black detectionImage
                 if annotation.score >= context.bddContextScoreThresh
                   then draw
                   else return ()
           concatImage <- concatImageByHorizontal groundTruthImage detectionImage
           -- let resizedImage = resizeRGB8 groundTruthImage.imageWidth groundTruthImage.imageHeight True concatImage
           putImage (Right concatImage)
-          
 
 evaluate :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
 evaluate cocoMap iouThreshold scoreThresh = do
@@ -222,7 +225,6 @@ evaluate cocoMap iouThreshold scoreThresh = do
       confusionMatrixP = Core.confusionMatrixPrecision @BDD.BddContext @BDD.BoundingBoxGT context -- Metric.confusionMatrix @(Sum Int) cocoMap iouThreshold' scoreThresh'
   putStrLn $ printf "#%-12s, %s" "CocoFile" cocoMap.cocoMapCocoFile
   putStrLn $ printf "#%-12s, %s" "CocoResultFile" cocoMap.cocoMapCocoResultFile
-
 
   putStrLn $ printf "%-12s, %s" "#Category" "AP"
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
@@ -250,7 +252,8 @@ evaluate cocoMap iouThreshold scoreThresh = do
   putStrLn "#confusion matrix of recall: row is ground truth, column is prediction."
   putStr $ printf "%-12s," "#GT \\ DT"
   putStr $ printf "%-12s," "Backgroud"
-  let (!!!) dat key = -- filter (\v -> v.risk > 0.1) $
+  let (!!!) dat key =
+        -- filter (\v -> v.risk > 0.1) $
         fromMaybe [] (Map.lookup key dat)
   forM_ (cocoMapCategoryIds cocoMap) $ \categoryId -> do
     putStr $ printf "%-12s," (T.unpack (cocoCategoryName ((cocoMapCocoCategory cocoMap) Map.! categoryId)))

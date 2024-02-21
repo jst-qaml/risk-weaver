@@ -18,8 +18,8 @@ import Control.Monad
 import Data.Int
 import Data.Vector.Storable qualified as V
 import Foreign.ForeignPtr qualified as F
-import GHC.ForeignPtr qualified as GF
 import Foreign.Ptr qualified as F
+import GHC.ForeignPtr qualified as GF
 import Language.C.Inline qualified as C
 import System.IO.Unsafe
 import Prelude hiding (max, min)
@@ -392,14 +392,13 @@ pixelFormat image = case image of
   I.ImageYA16 _ -> YA16
   I.ImageY32 _ -> Y32
 
-
 -- allocates memory for a new image
 createImage :: Int -> Int -> IO (I.Image I.PixelRGB8)
 createImage w h = do
-    when (w < 0) $ error ("trying to createImage of negative dim: "++show w)
-    when (h < 0) $ error ("trying to createImage of negative dim: "++show h)
-    fp <- GF.mallocPlainForeignPtrBytes size
-    return $ I.Image w h (V.unsafeFromForeignPtr fp 0 size)
+  when (w < 0) $ error ("trying to createImage of negative dim: " ++ show w)
+  when (h < 0) $ error ("trying to createImage of negative dim: " ++ show h)
+  fp <- GF.mallocPlainForeignPtrBytes size
+  return $ I.Image w h (V.unsafeFromForeignPtr fp 0 size)
   where
     size = w * h * 3
 
@@ -474,17 +473,17 @@ pasteImage input offsetx offsety destination = do
 
 concatImagesH :: [I.Image I.PixelRGB8] -> IO (I.Image I.PixelRGB8)
 concatImagesH [] = error "concatImagesH: empty list"
-concatImagesH (x:[]) = return x
-concatImagesH (x:y:xs) = do
+concatImagesH (x : []) = return x
+concatImagesH (x : y : xs) = do
   newImage <- concatImageByHorizontal x y
-  concatImagesH (newImage:xs)
+  concatImagesH (newImage : xs)
 
 concatImagesV :: [I.Image I.PixelRGB8] -> IO (I.Image I.PixelRGB8)
 concatImagesV [] = error "concatImagesH: empty list"
-concatImagesV (x:[]) = return x
-concatImagesV (x:y:xs) = do
+concatImagesV (x : []) = return x
+concatImagesV (x : y : xs) = do
   newImage <- concatImageByVertical x y
-  concatImagesH (newImage:xs)
+  concatImagesH (newImage : xs)
 
 concatImageByHorizontal :: I.Image I.PixelRGB8 -> I.Image I.PixelRGB8 -> IO (I.Image I.PixelRGB8)
 concatImageByHorizontal left right = do
@@ -581,5 +580,3 @@ concatImages2x2 topLeft topRight bottomLeft bottomRight = do
   top <- concatImageByHorizontal topLeft topRight
   bottom <- concatImageByHorizontal bottomLeft bottomRight
   concatImageByVertical top bottom
-
-
