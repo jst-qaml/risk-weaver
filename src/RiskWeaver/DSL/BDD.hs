@@ -14,16 +14,12 @@
 
 module RiskWeaver.DSL.BDD where
 
-import Control.Monad (mapM, forM)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Trans.Reader (ReaderT, ask, runReader, runReaderT)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReader)
 import Control.Parallel.Strategies
-import Control.DeepSeq
 import RiskWeaver.DSL.Core
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (Maybe, fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Vector (Vector)
@@ -138,10 +134,10 @@ instance BoundingBox BoundingBoxGT where
     let gts = groundTruth env
         gts'' = filter (\gt -> classD @BoundingBoxGT dt == classG @BoundingBoxGT gt) $ Vector.toList gts
         -- Get max IOU detection with ioUThresh
-        gts''' = filter (\(iou, _) -> iou > ioUThresh env) $ map (\gt -> (ioU gt dt, gt)) gts''
+        gts''' = filter (\(iou', _) -> iou' > ioUThresh env) $ map (\gt -> (ioU gt dt, gt)) gts''
      in case gts''' of
           [] -> Nothing
-          gts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts
+          gts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts_
   toErrorType = riskType
 
 
@@ -173,10 +169,10 @@ instance BoundingBox BoundingBoxGT where
         dts' = filter (\dt -> scoreD @BoundingBoxGT dt > confidenceScoreThresh env) $ Vector.toList dts
         dts'' = filter (\dt -> classD @BoundingBoxGT dt == classG @BoundingBoxGT gt) dts'
         -- Get max IOU detection with ioUThresh
-        dts''' = filter (\(iou, _) -> iou > ioUThresh env) $ map (\dt -> (ioU gt dt, dt)) dts''
+        dts''' = filter (\(iou', _) -> iou' > ioUThresh env) $ map (\dt -> (ioU gt dt, dt)) dts''
      in case dts''' of
           [] -> Nothing
-          dts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts
+          dts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts_
 
   isInIeterestAreaD :: InterestArea BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isInIeterestAreaD polygon dt = pointInPolygon (Polygon polygon) (Point (dt.x, dt.y))
@@ -187,13 +183,13 @@ instance BoundingBox BoundingBoxGT where
   isInterestObjectG :: InterestObject BoundingBoxGT -> BoundingBoxGT -> Bool
   isInterestObjectG fn gt = fn $ Left gt
 
-  confusionMatrixRecallBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksGt $ \bddRisk@BddRisk{..} ->
-    Map.singleton (maybe Background classG riskGt,maybe Background classD riskDt) [bddRisk]
+  confusionMatrixRecallBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksGt $ \bddRisk ->
+    Map.singleton (maybe Background classG bddRisk.riskGt,maybe Background classD bddRisk.riskDt) [bddRisk]
     where
       risksGt = runReader riskForGroundTruth env
   {-# INLINABLE confusionMatrixRecallBB #-}
-  confusionMatrixPrecisionBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksDt $ \bddRisk@BddRisk{..} ->
-    Map.singleton (maybe Background classD riskDt,maybe Background classG riskGt) [bddRisk]
+  confusionMatrixPrecisionBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksDt $ \bddRisk ->
+    Map.singleton (maybe Background classD bddRisk.riskDt,maybe Background classG bddRisk.riskGt) [bddRisk]
     where
       risksDt = runReader riskForDetection env
   {-# INLINABLE confusionMatrixPrecisionBB #-}
@@ -219,14 +215,14 @@ detectMaxIouG env gt =
       dts' = map (\dt -> (ioU gt dt, dt)) $ Vector.toList dts
     in case dts' of
         [] -> Nothing
-        dts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts
+        dts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts_
 detectMaxIouD :: Env BoundingBoxGT -> (Detection BoundingBoxGT) -> Maybe BoundingBoxGT
 detectMaxIouD env dt =
   let gts = groundTruth env
       gts' = map (\gt -> (ioU gt dt, gt)) $ Vector.toList gts
     in case gts' of
         [] -> Nothing
-        gts -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts
+        gts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts_
 
 riskForGroundTruth :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
 riskForGroundTruth = do
@@ -317,9 +313,9 @@ cocoCategoryToClass coco categoryId =
         _ -> Background
 
 cocoResultToVector :: CocoMap -> ImageId -> (Vector BoundingBoxGT, Vector BoundingBoxDT)
-cocoResultToVector coco imageId = (groundTruth, detection)
+cocoResultToVector coco imageId' = (groundTruth', detection')
   where
-    groundTruth =
+    groundTruth' =
       Vector.fromList $
         maybe
           []
@@ -337,8 +333,8 @@ cocoResultToVector coco imageId = (groundTruth, detection)
               )
               . zip [0..]
           )
-          (Map.lookup imageId (cocoMapCocoAnnotation coco))
-    detection =
+          (Map.lookup imageId' (cocoMapCocoAnnotation coco))
+    detection' =
       Vector.fromList $
         maybe
           []
@@ -357,7 +353,7 @@ cocoResultToVector coco imageId = (groundTruth, detection)
               )
               . zip [0..]
           )
-          (Map.lookup imageId (cocoMapCocoResult coco))
+          (Map.lookup imageId' (cocoMapCocoResult coco))
 
 data BddContext = BddContext
   { bddContextDataset :: CocoMap
@@ -366,30 +362,30 @@ data BddContext = BddContext
   } deriving (Show, Eq)
 
 instance World BddContext BoundingBoxGT where
-  envs BddContext{..} = map (\imageId ->
-                               let (gt,dt) = cocoResultToVector bddContextDataset imageId
+  envs BddContext{..} = map (\imageId' ->
+                               let (gt,dt) = cocoResultToVector bddContextDataset imageId'
                                in MyEnv {
                                  envGroundTruth = gt,
                                  envDetection = dt,
                                  envConfidenceScoreThresh = bddContextScoreThresh,
                                  envIoUThresh = bddContextIouThresh,
-                                 envImageId = unImageId imageId
+                                 envImageId = unImageId imageId'
                                  }) bddContextDataset.cocoMapImageIds
   mAP BddContext{..} = fst $ RiskWeaver.Metric.mAP bddContextDataset (IOU bddContextIouThresh)
   ap BddContext{..} = Map.fromList $ map (\(key,value) -> (cocoCategoryToClass bddContextDataset key, value) )$ snd $ RiskWeaver.Metric.mAP bddContextDataset (IOU bddContextIouThresh)
-  risk context@BddContext{..} =  concat $ map snd $ runRiskWithError context
+  risk context =  concat $ map snd $ runRiskWithError context
   confusionMatrixRecall context@BddContext{..} = sortAndGroup risks
     where
       risks :: [((Class, Class), BddRisk)]
-      risks = concat $ flip map (cocoMapImageIds bddContextDataset) $ \imageId -> map getKeyValue (runReader riskForGroundTruth (contextToEnv context imageId))
+      risks = concat $ flip map (cocoMapImageIds bddContextDataset) $ \imageId' -> map getKeyValue (runReader riskForGroundTruth (contextToEnv context imageId'))
       getKeyValue :: BddRisk -> ((Class, Class), BddRisk)
-      getKeyValue bddRisk@BddRisk{..} = ((maybe Background classG riskGt, maybe Background classD riskDt),bddRisk)
+      getKeyValue bddRisk = ((maybe Background classG bddRisk.riskGt, maybe Background classD bddRisk.riskDt),bddRisk)
   confusionMatrixPrecision context@BddContext{..} = sortAndGroup risks
     where
       risks :: [((Class, Class), BddRisk)]
-      risks = concat $ flip map (cocoMapImageIds bddContextDataset) $ \imageId -> map getKeyValue (runReader riskForDetection (contextToEnv context imageId))
+      risks = concat $ flip map (cocoMapImageIds bddContextDataset) $ \imageId' -> map getKeyValue (runReader riskForDetection (contextToEnv context imageId'))
       getKeyValue :: BddRisk -> ((Class, Class), BddRisk)
-      getKeyValue bddRisk@BddRisk{..} = ((maybe Background classD riskDt, maybe Background classG riskGt),bddRisk)
+      getKeyValue bddRisk = ((maybe Background classD bddRisk.riskDt, maybe Background classG bddRisk.riskGt),bddRisk)
 
 sortAndGroup :: Ord k => [(k,v)] -> Map k [v]
 sortAndGroup assocs = Map.fromListWith (++) [(k, [v]) | (k, v) <- assocs]
@@ -398,22 +394,22 @@ sortAndGroup assocs = Map.fromListWith (++) [(k, [v]) | (k, v) <- assocs]
 runRisk ::
   BddContext -> [(ImageId, Double)]
 runRisk context =
-  map (\(imageId, risks) -> (imageId, sum $ map (\r -> r.risk) risks)) (runRiskWithError context)
+  map (\(imageId', risks) -> (imageId', sum $ map (\r -> r.risk) risks)) (runRiskWithError context)
   `using` parList rdeepseq
 
 contextToEnv :: BddContext -> ImageId -> Env BoundingBoxGT
-contextToEnv BddContext{..} imageId =
-  let (groundTruth, detection) = cocoResultToVector bddContextDataset imageId
+contextToEnv BddContext{..} imageId' =
+  let (groundTruth', detection') = cocoResultToVector bddContextDataset imageId'
    in MyEnv
-        { envGroundTruth = groundTruth,
-          envDetection = detection,
+        { envGroundTruth = groundTruth',
+          envDetection = detection',
           envConfidenceScoreThresh = bddContextScoreThresh,
           envIoUThresh = bddContextIouThresh,
-          envImageId = unImageId imageId
+          envImageId = unImageId imageId'
         }
 
 runRiskWithError :: BddContext -> [(ImageId, [BddRisk])]
 runRiskWithError context@BddContext{..} =
-  map (\imageId -> (imageId, riskE (contextToEnv context imageId))) (cocoMapImageIds bddContextDataset)
+  map (\imageId' -> (imageId', riskE (contextToEnv context imageId'))) (cocoMapImageIds bddContextDataset)
   `using` parList rdeepseq
 

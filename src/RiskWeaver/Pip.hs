@@ -22,4 +22,4 @@ pointInPolygon (Polygon polygon) (Point point) =
                   then -1
                   else 0
              else 0
-  in (foldl (+) 0 wn) /= 0
+  in (foldl (+) 0 wn) /= (0 :: Int)

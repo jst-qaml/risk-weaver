@@ -2,24 +2,21 @@
 This module provides COCO format parser of object detection dataset.
 Aeson is used for parsing JSON.
 -}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE Strict #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module RiskWeaver.Format.Coco where
 
-import Codec.Picture.Metadata (Value (Double))
-import Control.Monad (ap)
 import Control.DeepSeq
 import Control.Concurrent.Async
 import Data.Aeson
 import Data.ByteString.Lazy qualified as BS
-import Data.List (maximumBy, sort, sortBy)
 import Data.Map qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics
@@ -30,6 +27,8 @@ newtype ImageId = ImageId {unImageId :: Int} deriving (Show, Ord, Eq, Generic, N
 newtype CategoryId = CategoryId {unCategoryId :: Int} deriving (Show, Ord, Eq, Generic, NFData)
 
 newtype Score = Score {unScore :: Double} deriving (Show, Eq, Ord, Num, Fractional, Floating, Real, RealFrac, RealFloat, Generic, NFData)
+
+
 
 instance FromJSON ImageId where
   parseJSON = withScientific "image_id" $ \n -> do
@@ -60,7 +59,9 @@ data CocoInfo = CocoInfo
     cocoInfoUrl :: Text,
     cocoInfoDateCreated :: Text
   }
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Eq, Generic)
+
+instance NFData CocoInfo
 
 instance FromJSON CocoInfo where
   parseJSON = withObject "info" $ \o -> do
@@ -88,7 +89,9 @@ data CocoLicense = CocoLicense
     cocoLicenseName :: Text,
     cocoLicenseUrl :: Text
   }
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Eq, Generic)
+
+instance NFData CocoLicense
 
 instance FromJSON CocoLicense where
   parseJSON = withObject "license" $ \o -> do
@@ -113,7 +116,9 @@ data CocoImage = CocoImage
     cocoImageLicense :: Maybe Int,
     cocoImageDateCoco :: Maybe Text
   }
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Eq, Generic)
+
+instance NFData CocoImage
 
 instance FromJSON CocoImage where
   parseJSON = withObject "image" $ \o -> do
@@ -138,7 +143,9 @@ instance ToJSON CocoImage where
 
 newtype CoCoBoundingBox
   = CoCoBoundingBox (Double, Double, Double, Double)
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Eq, Generic)
+
+instance NFData CoCoBoundingBox
 
 -- (x, y, width, height)
 
@@ -151,7 +158,9 @@ data CocoAnnotation = CocoAnnotation
     cocoAnnotationBbox :: CoCoBoundingBox,
     cocoAnnotationIsCrowd :: Maybe Int
   }
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Eq, Generic)
+
+instance NFData CocoAnnotation
 
 instance FromJSON CocoAnnotation where
   parseJSON = withObject "annotation" $ \o -> do
@@ -160,7 +169,11 @@ instance FromJSON CocoAnnotation where
     cocoAnnotationCategory <- o .: "category_id"
     cocoAnnotationSegment <- o .:? "segmentation"
     cocoAnnotationArea <- o .: "area"
-    cocoAnnotationBbox <- fmap (\[x, y, w, h] -> CoCoBoundingBox (x, y, w, h)) $ o .: "bbox"
+    cocoAnnotationBbox <- fmap (
+      \case
+        x: y: w: h: _ -> CoCoBoundingBox (x, y, w, h)
+        v -> error $ "Annotation's bounding box needs 4 numbers. : " ++ show v
+      ) $ o .: "bbox"
     cocoAnnotationIsCrowd <- o .:? "iscrowd"
     return CocoAnnotation {..}
 
@@ -181,7 +194,9 @@ data CocoCategory = CocoCategory
     cocoCategoryName :: Text,
     cocoCategorySupercategory :: Text
   }
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Eq, Generic)
+
+instance NFData CocoCategory
 
 instance FromJSON CocoCategory where
   parseJSON = withObject "category" $ \o -> do
@@ -205,7 +220,9 @@ data Coco = Coco
     cocoAnnotations :: [CocoAnnotation],
     cocoCategories :: [CocoCategory]
   }
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Eq, Generic)
+
+instance NFData Coco
 
 instance FromJSON Coco where
   parseJSON = withObject "coco" $ \o -> do
@@ -234,14 +251,20 @@ data CocoResult = CocoResult
     cocoResultScore :: Score,
     cocoResultBbox :: CoCoBoundingBox
   }
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Eq, Generic)
+
+instance NFData CocoResult
 
 instance FromJSON CocoResult where
   parseJSON = withObject "result" $ \o -> do
     cocoResultImageId <- o .: "image_id"
     cocoResultCategory <- o .: "category_id"
     cocoResultScore <- o .: "score"
-    cocoResultBbox <- fmap (\[x, y, w, h] -> CoCoBoundingBox (x, y, w, h)) $ o .: "bbox"
+    cocoResultBbox <- fmap (
+      \case
+       x: y: w: h: _ -> CoCoBoundingBox (x, y, w, h)
+       v -> error $ "Annotation's bounding box needs 4 numbers. : " ++ show v
+      ) $ o .: "bbox"
     return CocoResult {..}
 
 instance ToJSON CocoResult where
@@ -322,7 +345,9 @@ data CocoMap = CocoMap
     cocoMapCocoFile :: FilePath,
     cocoMapCocoResultFile :: FilePath
   }
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Eq, Generic)
+
+instance NFData CocoMap
 
 getImageDir :: CocoMap -> FilePath
 getImageDir cocoMap =

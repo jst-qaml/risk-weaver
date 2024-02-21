@@ -127,14 +127,14 @@ class World b a where
 
 -- | Loop for ground truth
 loopG :: forall a m b. (BoundingBox a, Monad m) => (b -> b -> b) -> b -> (a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b
-loopG add init fn = do
+loopG add init' fn = do
   env <- ask
-  foldl add init <$> mapM fn (groundTruth @a env)
+  foldl add init' <$> mapM fn (groundTruth @a env)
 {-# INLINABLE loopG #-}
 
 -- | Loop for detection
 loopD :: forall a m b. (BoundingBox a, Monad m) => (b -> b -> b) -> b -> (Detection a -> ReaderT (Env a) m b) -> ReaderT (Env a) m b
-loopD add init fn = do
+loopD add init' fn = do
   env <- ask
-  foldl add init <$> mapM fn (detection @a env)
+  foldl add init' <$> mapM fn (detection @a env)
 {-# INLINABLE loopD #-}

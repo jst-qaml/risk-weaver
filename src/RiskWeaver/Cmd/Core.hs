@@ -1,29 +1,16 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 module RiskWeaver.Cmd.Core where
 
 import Control.Monad
-import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
-import RiskWeaver.DSL.Core qualified as DSL
 import Data.ByteString qualified as BS
 import Data.FileEmbed (embedFile)
-import Data.List (sortBy)
-import Data.Map qualified as Map
-import Data.Maybe
 import Data.Text qualified as T
-import Data.Vector (Vector)
-import Data.Vector qualified as Vector
-import Data.Semigroup (Sum(..))
 import RiskWeaver.Display
 import RiskWeaver.Format.Coco
-import qualified RiskWeaver.Metric as Metric
-import RiskWeaver.Metric
-
 import Options.Applicative
-import System.Random
-import Text.Printf
-import Codec.Picture
 
 
 data CocoCommand
@@ -47,22 +34,19 @@ data CocoCommand
       { cocoFile :: FilePath,
         cocoResultFile :: FilePath,
         iouThreshold :: Maybe Double,
-        scoreThreshold :: Maybe Double,
-        imageId :: Maybe Int
+        scoreThreshold :: Maybe Double
       }
   | ShowRisk
       { cocoFile :: FilePath,
         cocoResultFile :: FilePath,
         iouThreshold :: Maybe Double,
-        scoreThreshold :: Maybe Double,
-        imageId :: Maybe Int
+        scoreThreshold :: Maybe Double
       }
   | ShowRiskWithError
       { cocoFile :: FilePath,
         cocoResultFile :: FilePath,
         iouThreshold :: Maybe Double,
-        scoreThreshold :: Maybe Double,
-        imageId :: Maybe Int
+        scoreThreshold :: Maybe Double
       }
   | GenerateRiskWeightedDataset
       { cocoFile :: FilePath,
@@ -76,11 +60,11 @@ data CocoCommand
 
 data RiskCommands = 
   RiskCommands
-    { showRisk :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
-    , showRiskWithError :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+    { showRisk :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
+    , showRiskWithError :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
     , generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
     , showDetectionImage :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
-    , evaluate :: CocoMap -> Maybe Double -> Maybe Double -> Maybe ImageId -> IO ()
+    , evaluate :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
     }
 
 listImages :: Coco -> IO ()
@@ -147,18 +131,18 @@ opts =
         <> command "list-coco-result" (info (ListCocoResult <$> argument str (metavar "FILE")) (progDesc "list all coco result"))
         <> command "show-image" (info (ShowImage <$> argument str (metavar "FILE") <*> argument str (metavar "IMAGE_FILE") <*> switch (long "enable-bounding-box" <> short 'b' <> help "enable bounding box")) (progDesc "show image by sixel"))
         <> command "show-detection-image" (info (ShowDetectionImage <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "IMAGE_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show detection image by sixel"))
-        <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "evaluate coco result"))
-        <> command "show-risk" (info (ShowRisk <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "show risk"))
-        <> command "show-risk-with-error" (info (ShowRiskWithError <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold")) <*> optional (option auto (long "filter" <> short 'e' <> help "filter with regex"))) (progDesc "show risk with error"))
+        <> command "evaluate" (info (Evaluate <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "evaluate coco result"))
+        <> command "show-risk" (info (ShowRisk <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show risk"))
+        <> command "show-risk-with-error" (info (ShowRiskWithError <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show risk with error"))
         <> command "generate-risk-weighted-dataset" (info (GenerateRiskWeightedDataset <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "OUTPUT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "generate risk weighted dataset"))
         <> command "bash-completion" (info (pure BashCompletion) (progDesc "bash completion"))
     )
 
 baseMain :: RiskCommands -> IO ()
-baseMain RiskCommands{..} = do
-  cmd <- customExecParser (prefs showHelpOnEmpty) (info (helper <*> opts) (fullDesc <> progDesc "coco command line tool"))
+baseMain hook = do
+  parsedCommand <- customExecParser (prefs showHelpOnEmpty) (info (helper <*> opts) (fullDesc <> progDesc "coco command line tool"))
 
-  case cmd of
+  case parsedCommand of
     BashCompletion -> bashCompletion
     ListImages cocoFile -> do
       coco <- readCoco cocoFile
@@ -177,17 +161,16 @@ baseMain RiskCommands{..} = do
       showImage coco cocoFile imageFile enableBoundingBox
     ShowDetectionImage cocoFile cocoResultFile imageFile iouThreshold scoreThreshold -> do
       cocoMap <- readCocoMap cocoFile cocoResultFile
-      showDetectionImage cocoMap imageFile iouThreshold scoreThreshold
-    Evaluate cocoFile cocoResultFile iouThreshold scoreThreshold imageId -> do
+      hook.showDetectionImage cocoMap imageFile iouThreshold scoreThreshold
+    Evaluate cocoFile cocoResultFile iouThreshold scoreThreshold -> do
       cocoMap <- readCocoMap cocoFile cocoResultFile
-      evaluate cocoMap iouThreshold scoreThreshold (fmap ImageId imageId)
-    ShowRisk cocoFile cocoResultFile iouThreshold scoreThreshold imageId -> do
+      hook.evaluate cocoMap iouThreshold scoreThreshold
+    ShowRisk cocoFile cocoResultFile iouThreshold scoreThreshold -> do
       cocoMap <- readCocoMap cocoFile cocoResultFile
-      showRisk cocoMap iouThreshold scoreThreshold (fmap ImageId imageId)
-    ShowRiskWithError cocoFile cocoResultFile iouThreshold scoreThreshold imageId -> do
+      hook.showRisk cocoMap iouThreshold scoreThreshold
+    ShowRiskWithError cocoFile cocoResultFile iouThreshold scoreThreshold -> do
       cocoMap <- readCocoMap cocoFile cocoResultFile
-      showRiskWithError cocoMap iouThreshold scoreThreshold (fmap ImageId imageId)
+      hook.showRiskWithError cocoMap iouThreshold scoreThreshold
     GenerateRiskWeightedDataset cocoFile cocoResultFile cocoOutputFile iouThreshold scoreThreshold -> do
       cocoMap <- readCocoMap cocoFile cocoResultFile
-      generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThreshold
-    _ -> return ()
+      hook.generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThreshold

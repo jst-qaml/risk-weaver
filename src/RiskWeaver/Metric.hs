@@ -7,8 +7,7 @@
 module RiskWeaver.Metric where
 
 import Control.Parallel.Strategies
-import Control.DeepSeq
-import Data.List (maximumBy, sort, sortBy)
+import Data.List (maximumBy, sortBy)
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import RiskWeaver.Format.Coco
@@ -64,9 +63,8 @@ iog (CoCoBoundingBox (x1, y1, w1, h1)) (CoCoBoundingBox (x2, y2, w2, h2)) =
 -- | When the value is True, TP is calculated.
 -- | When the value is False, FP is calculated.
 toTPorFP :: CocoMap -> ImageId -> CategoryId -> IOU -> ([(CocoResult, Bool)], Int)
-toTPorFP cocoMap@CocoMap {..} imageId categoryId iouThresh =
-  let cocoImage = cocoMapCocoImage Map.! imageId
-      -- detections is sorted by score in descending order.
+toTPorFP CocoMap {..} imageId categoryId iouThresh =
+  let -- detections is sorted by score in descending order.
       detections :: [CocoResult] =
         case Map.lookup imageId cocoMapCocoResult of
           Nothing -> []
@@ -85,19 +83,19 @@ toTPorFP cocoMap@CocoMap {..} imageId categoryId iouThresh =
         if Map.size gts == 0
           then Nothing
           else
-            let ious = map (\(i, gt) -> (i, gt, iou (cocoAnnotationBbox gt) (cocoResultBbox cocoResult))) $ Map.toList gts
+            let ious = map (\(i', gt') -> (i', gt', iou (cocoAnnotationBbox gt') (cocoResultBbox cocoResult))) $ Map.toList gts
                 (i, gt, iou') = maximumBy (\(_, _, iou1) (_, _, iou2) -> compare iou1 iou2) ious
              in if iou' >= iouThresh
                   then Just (i, gt, iou')
                   else Nothing
       loop :: [CocoResult] -> Map.Map Int CocoAnnotation -> [(CocoResult, Bool)]
       loop [] _ = []
-      loop (result : results) groundTruths =
-        case getGTWithMaxScore result groundTruths of
-          Nothing -> (result, False) : loop results groundTruths
-          Just (i, gt, iou') ->
-            let groundTruths' = Map.delete i groundTruths
-             in (result, True) : loop results groundTruths'
+      loop (result : results) groundTruths' =
+        case getGTWithMaxScore result groundTruths' of
+          Nothing -> (result, False) : loop results groundTruths'
+          Just (i, _, _) ->
+            let groundTruths'' = Map.delete i groundTruths'
+             in (result, True) : loop results groundTruths''
    in (loop detections groundTruths, numOfGroundTruths)
 
 apForCategory :: CocoMap -> CategoryId -> IOU -> Double

@@ -6,7 +6,6 @@ import Data.Map qualified as Map
 import Data.OSC1337 qualified as OSC
 import Data.Sixel qualified as Sixel
 import Data.Text qualified as T
-import Data.Maybe (fromMaybe)
 import RiskWeaver.Draw
 import RiskWeaver.Format.Coco
 import System.Environment (lookupEnv)
@@ -20,8 +19,8 @@ putImage image' = do
     Left imagePath -> do
       imageBin <- readImage imagePath
       case imageBin of
-        Left err -> fail $ "Image file " ++ imagePath ++ " can not be read."
-        Right imageBin -> return (convertRGB8 imageBin)
+        Left err -> fail $ "Image file " ++ imagePath ++ " can not be read. : " ++ show err
+        Right imageBin' -> return (convertRGB8 imageBin')
     Right image -> return image
   case termProgram of
     Just "iTerm.app" -> do
@@ -74,15 +73,15 @@ drawDetectionBoundingBox imageBin annotations properties categories scoreThresho
           -- Use printf format to show score
           drawString (printf "%.2f" (unScore $ cocoResultScore annotation)) x (y + 10) (255, 0, 0) (0, 0, 0) imageRGB8
           case (property, overlay) of
-            (Just property, Just overlay) -> do
-              overlay imageRGB8 property
+            (Just property', Just overlay') -> do
+              _ <- overlay' imageRGB8 property'
               return ()
             _ -> return ()
     -- drawString (show $ cocoResultScore annotation)  x (y + 10) (255,0,0) (0,0,0) imageRGB8
     case scoreThreshold of
       Nothing -> draw
-      Just scoreThreshold -> do
-        if cocoResultScore annotation >= Score scoreThreshold
+      Just scoreThreshold' -> do
+        if cocoResultScore annotation >= Score scoreThreshold'
           then draw
           else return ()
   return imageRGB8
@@ -102,11 +101,11 @@ showImage coco cocoFile imageFile enableBoundingBox = do
       let image' = getCocoImageByFileName coco imageFile
       case image' of
         Nothing -> putStrLn $ "Image file " ++ imageFile ++ " is not found."
-        Just (image, annotations) -> do
+        Just (_, annotations) -> do
           let categories = toCategoryMap coco
           imageBin' <- readImage imagePath
           case imageBin' of
-            Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read."
+            Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read. : " ++ show err
             Right imageBin -> do
               imageRGB8 <- drawBoundingBox imageBin annotations categories
               putImage (Right imageRGB8)
@@ -119,10 +118,10 @@ showDetectionImage cocoMap imageFile scoreThreshold properties overlay = do
   let image' = getCocoResult cocoMap imageFile
   case image' of
     Nothing -> putStrLn $ "Image file " ++ imageFile ++ " is not found."
-    Just (image, annotations) -> do
+    Just (_, annotations) -> do
       imageBin' <- readImage imagePath
       case imageBin' of
-        Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read."
+        Left err -> putStrLn $ "Image file " ++ imagePath ++ " can not be read. : " ++ show err
         Right imageBin -> do
           drawDetectionBoundingBox imageBin annotations properties (cocoMapCocoCategory cocoMap) scoreThreshold overlay
             >>= putImage . Right

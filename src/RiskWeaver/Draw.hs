@@ -11,26 +11,15 @@
 module RiskWeaver.Draw where
 
 import Codec.Picture qualified as I
-import Control.Exception.Safe
-  ( SomeException (..),
-    throwIO,
-    try,
-  )
 import Control.Monad
-  ( MonadPlus,
-    forM_,
+  ( forM_,
     when,
   )
-import Data.ByteString qualified as BS
-import Data.ByteString.Internal qualified as BSI
 import Data.Int
 import Data.Vector.Storable qualified as V
-import Data.Word
 import Foreign.ForeignPtr qualified as F
 import GHC.ForeignPtr qualified as GF
 import Foreign.Ptr qualified as F
-import Foreign.Storable qualified as F
-import GHC.Exts (IsList (fromList))
 import Language.C.Inline qualified as C
 import System.IO.Unsafe
 import Prelude hiding (max, min)
@@ -60,10 +49,8 @@ centerCrop width height input = unsafePerformIO $ do
   let channel = 3 :: Int
       (I.Image org_w org_h org_vec) = input
       img@(I.Image w h vec) = I.generateImage (\_ _ -> (I.PixelRGB8 0 0 0)) width height :: I.Image I.PixelRGB8
-      (org_fptr, org_len) = V.unsafeToForeignPtr0 org_vec
-      org_whc = fromIntegral $ org_w * org_h * channel
-      (fptr, len) = V.unsafeToForeignPtr0 vec
-      whc = fromIntegral $ w * h * channel
+      (org_fptr, _) = V.unsafeToForeignPtr0 org_vec
+      (fptr, _) = V.unsafeToForeignPtr0 vec
   F.withForeignPtr org_fptr $ \ptr1 -> F.withForeignPtr fptr $ \ptr2 -> do
     let src = F.castPtr ptr1
         dst = F.castPtr ptr2
@@ -99,8 +86,8 @@ centerCrop width height input = unsafePerformIO $ do
 
 drawLine :: Int -> Int -> Int -> Int -> (Int, Int, Int) -> I.Image I.PixelRGB8 -> IO ()
 drawLine x0 y0 x1 y1 (r, g, b) input = do
-  let img@(I.Image w h vec) = input
-      (fptr, len) = V.unsafeToForeignPtr0 vec
+  let (I.Image w h vec) = input
+      (fptr, _) = V.unsafeToForeignPtr0 vec
   F.withForeignPtr fptr $ \ptr2 -> do
     let iw = fromIntegral w
         ih = fromIntegral h
@@ -165,8 +152,8 @@ drawString text x0 y0 (r, g, b) (br, bg, bb) input = do
 
 drawChar :: Int -> Int -> Int -> (Int, Int, Int) -> (Int, Int, Int) -> I.Image I.PixelRGB8 -> IO ()
 drawChar ascii_code x0 y0 (r, g, b) (br, bg, bb) input = do
-  let img@(I.Image w h vec) = input
-      (fptr, len) = V.unsafeToForeignPtr0 vec
+  let (I.Image w h vec) = input
+      (fptr, _) = V.unsafeToForeignPtr0 vec
   F.withForeignPtr fptr $ \ptr2 -> do
     let iw = fromIntegral w
         ih = fromIntegral h
@@ -322,10 +309,8 @@ resizeRGB8 width height keepAspectRatio input = unsafePerformIO $ do
   let channel = 3 :: Int
       (I.Image org_w org_h org_vec) = input
       img@(I.Image w h vec) = I.generateImage (\_ _ -> (I.PixelRGB8 0 0 0)) width height :: I.Image I.PixelRGB8
-      (org_fptr, org_len) = V.unsafeToForeignPtr0 org_vec
-      org_whc = fromIntegral $ org_w * org_h * channel
-      (fptr, len) = V.unsafeToForeignPtr0 vec
-      whc = fromIntegral $ w * h * channel
+      (org_fptr, _) = V.unsafeToForeignPtr0 org_vec
+      (fptr, _) = V.unsafeToForeignPtr0 vec
   F.withForeignPtr org_fptr $ \ptr1 -> F.withForeignPtr fptr $ \ptr2 -> do
     let src = F.castPtr ptr1
         dst = F.castPtr ptr2
@@ -421,10 +406,10 @@ createImage w h = do
 cloneImage :: I.Image I.PixelRGB8 -> IO (I.Image I.PixelRGB8)
 cloneImage input = do
   let (I.Image w h vec) = input
-      (org_fptr, len) = V.unsafeToForeignPtr0 vec
+      (org_fptr, _) = V.unsafeToForeignPtr0 vec
   newImage <- createImage w h
-  let (I.Image w h dst_vec) = newImage
-      (dst_fptr, dst_len) = V.unsafeToForeignPtr0 dst_vec
+  let (I.Image _ _ dst_vec) = newImage
+      (dst_fptr, _) = V.unsafeToForeignPtr0 dst_vec
   F.withForeignPtr org_fptr $ \ptr1 -> F.withForeignPtr dst_fptr $ \ptr2 -> do
     let src = F.castPtr ptr1
         dst = F.castPtr ptr2
@@ -450,9 +435,9 @@ cloneImage input = do
 pasteImage :: I.Image I.PixelRGB8 -> Int -> Int -> I.Image I.PixelRGB8 -> IO ()
 pasteImage input offsetx offsety destination = do
   let (I.Image w h vec) = input
-      (org_fptr, len) = V.unsafeToForeignPtr0 vec
+      (org_fptr, _) = V.unsafeToForeignPtr0 vec
       (I.Image dst_w dst_h dst_vec) = destination
-      (dst_fptr, dst_len) = V.unsafeToForeignPtr0 dst_vec
+      (dst_fptr, _) = V.unsafeToForeignPtr0 dst_vec
   F.withForeignPtr org_fptr $ \ptr1 -> F.withForeignPtr dst_fptr $ \ptr2 -> do
     let src = F.castPtr ptr1
         dst = F.castPtr ptr2
@@ -504,12 +489,12 @@ concatImagesV (x:y:xs) = do
 concatImageByHorizontal :: I.Image I.PixelRGB8 -> I.Image I.PixelRGB8 -> IO (I.Image I.PixelRGB8)
 concatImageByHorizontal left right = do
   let (I.Image lw lh lvec) = left
-      (lfptr, llen) = V.unsafeToForeignPtr0 lvec
+      (lfptr, _) = V.unsafeToForeignPtr0 lvec
       (I.Image rw rh rvec) = right
-      (rfptr, rlen) = V.unsafeToForeignPtr0 rvec
+      (rfptr, _) = V.unsafeToForeignPtr0 rvec
   newImage <- createImage (lw + rw) (P.max lh rh)
   let (I.Image w h dst_vec) = newImage
-      (dst_fptr, dst_len) = V.unsafeToForeignPtr0 dst_vec
+      (dst_fptr, _) = V.unsafeToForeignPtr0 dst_vec
   F.withForeignPtr lfptr $ \lptr -> F.withForeignPtr rfptr $ \rptr -> F.withForeignPtr dst_fptr $ \dptr -> do
     let lsrc = F.castPtr lptr
         rsrc = F.castPtr rptr
@@ -549,12 +534,12 @@ concatImageByHorizontal left right = do
 concatImageByVertical :: I.Image I.PixelRGB8 -> I.Image I.PixelRGB8 -> IO (I.Image I.PixelRGB8)
 concatImageByVertical top bottom = do
   let (I.Image tw th tvec) = top
-      (tfptr, tlen) = V.unsafeToForeignPtr0 tvec
+      (tfptr, _) = V.unsafeToForeignPtr0 tvec
       (I.Image bw bh bvec) = bottom
-      (bfptr, blen) = V.unsafeToForeignPtr0 bvec
+      (bfptr, _) = V.unsafeToForeignPtr0 bvec
   newImage <- createImage (P.max tw bw) (th + bh)
   let (I.Image w h dst_vec) = newImage
-      (dst_fptr, dst_len) = V.unsafeToForeignPtr0 dst_vec
+      (dst_fptr, _) = V.unsafeToForeignPtr0 dst_vec
   F.withForeignPtr tfptr $ \tptr -> F.withForeignPtr bfptr $ \bptr -> F.withForeignPtr dst_fptr $ \dptr -> do
     let tsrc = F.castPtr tptr
         bsrc = F.castPtr bptr
