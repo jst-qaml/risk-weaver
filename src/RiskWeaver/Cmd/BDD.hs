@@ -37,14 +37,15 @@ toBddContext cocoMap iouThreshold scoreThresh =
         BDD.BddContext
           { bddContextDataset = cocoMap,
             bddContextIouThresh = iouThreshold'',
-            bddContextScoreThresh = scoreThresh''
+            bddContextScoreThresh = scoreThresh'',
+            bddContextUseInterestArea = False
           }
    in context
 
 showRisk :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
 showRisk cocoMap iouThreshold scoreThresh = do
   let context = toBddContext cocoMap iouThreshold scoreThresh
-      risks = BDD.runRisk context
+      risks = Core.runRisk @BDD.BddContext @BDD.BoundingBoxGT context
   putStrLn $ printf "%-12s %-12s %s" "#ImageId" "Filename" "Risk"
   let sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare risk2 risk1) risks
   forM_ sortedRisks $ \(imageId, risk) -> do
@@ -54,7 +55,7 @@ showRisk cocoMap iouThreshold scoreThresh = do
 showRiskWithError :: CocoMap -> Maybe Double -> Maybe Double -> IO ()
 showRiskWithError cocoMap iouThreshold scoreThresh = do
   let context = toBddContext cocoMap iouThreshold scoreThresh
-      risks = BDD.runRiskWithError context :: [(ImageId, [BDD.BddRisk])]
+      risks = Core.runRiskWithError @BDD.BddContext @BDD.BoundingBoxGT context :: [(ImageId, [BDD.BddRisk])]
   putStrLn $ printf "%-12s %-12s %-12s %-12s" "#ImageId" "Filename" "Risk" "ErrorType"
   let sum' riskWithErrors = sum $ map (\r -> r.risk) riskWithErrors
       sortedRisks = sortBy (\(_, risk1) (_, risk2) -> compare (sum' risk2) (sum' risk1)) risks
@@ -63,29 +64,11 @@ showRiskWithError cocoMap iouThreshold scoreThresh = do
     forM_ risks' $ \bddRisk -> do
       putStrLn $ printf "%-12d %-12s %.3f %-12s" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) bddRisk.risk (show bddRisk.riskType)
 
+
 generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
 generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
   let context = toBddContext cocoMap iouThreshold scoreThresh
-      risks = BDD.runRisk context
-  let sumRisks = sum $ map snd risks
-      probs = map (\(_, risk) -> risk / sumRisks) risks
-      acc_probs =
-        let loop [] _ = []
-            loop (x : xs) s = (s, s + x) : loop xs (s + x)
-         in loop probs 0
-      numDatasets = length $ cocoMapImageIds cocoMap
-  let imageSets :: [((Double, Double), ImageId)]
-      imageSets = zip acc_probs $ map fst risks
-      resample [] _ _ = []
-      resample s@(((x, y), img) : xs) n end =
-        if n == end
-          then []
-          else
-            let p = (fromIntegral n :: Double) / (fromIntegral numDatasets :: Double)
-             in if x <= p && p < y
-                  then img : resample s (n + 1) end
-                  else resample xs n end
-      imageIds = resample imageSets 0 numDatasets
+      imageIds = Core.generateRiskWeightedImages @BDD.BddContext @BDD.BoundingBoxGT context
       (newCoco, newCocoResult) = resampleCocoMapWithImageIds cocoMap imageIds
   writeCoco cocoOutputFile newCoco
   let newCocoMap = toCocoMap newCoco newCocoResult cocoOutputFile ""
@@ -110,9 +93,9 @@ showDetectionImage cocoMap imageFile iouThreshold scoreThreshold = do
     Nothing -> putStrLn $ "Image file " ++ imageFile ++ " is not found."
     Just (image, _) -> do
       imageBin' <- readImage imagePath
-      let env = BDD.contextToEnv context (cocoImageId image)
-          riskG = runReader BDD.riskForGroundTruth env
-          riskD = runReader BDD.riskForDetection env
+      let env = Core.toEnv @BDD.BddContext @BDD.BoundingBoxGT context (cocoImageId image)
+          riskG = runReader Core.riskForGroundTruth env
+          riskD = runReader Core.riskForDetection env
       forM_ riskG $ \riskg -> do
         putStrLn $ show riskg
       forM_ riskD $ \riskd -> do
@@ -223,7 +206,7 @@ evaluate cocoMap iouThreshold scoreThresh = do
   putStrLn ""
 
   -- Print risk scores statistically
-  let risks = BDD.runRisk context
+  let risks = Core.runRisk @BDD.BddContext @BDD.BoundingBoxGT context
   putStrLn $ printf "%-12s" "#Risk"
   let num_of_images = (length $ map snd risks)
       max_risks = (maximum $ map snd risks)
@@ -278,8 +261,6 @@ evaluate cocoMap iouThreshold scoreThresh = do
   putStrLn $ printf "%-12s, %.3f" "mF1" mF1
   putStrLn ""
   putStrLn ""
-
-
 
 bddCommand :: RiskCommands
 bddCommand =

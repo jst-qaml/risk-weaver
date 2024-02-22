@@ -192,17 +192,6 @@ instance BoundingBox BoundingBoxGT where
   isInterestObjectG :: InterestObject BoundingBoxGT -> BoundingBoxGT -> Bool
   isInterestObjectG fn gt = fn $ Left gt
 
-  confusionMatrixRecallBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksGt $ \bddRisk ->
-    Map.singleton (maybe Background classG bddRisk.riskGt, maybe Background classD bddRisk.riskDt) [bddRisk]
-    where
-      risksGt = runReader riskForGroundTruth env
-  {-# INLINEABLE confusionMatrixRecallBB #-}
-  confusionMatrixPrecisionBB env = foldl (Map.unionWith (<>)) Map.empty $ flip map risksDt $ \bddRisk ->
-    Map.singleton (maybe Background classD bddRisk.riskDt, maybe Background classG bddRisk.riskGt) [bddRisk]
-    where
-      risksDt = runReader riskForDetection env
-  {-# INLINEABLE confusionMatrixPrecisionBB #-}
-
 instance Show (ErrorType BoundingBoxGT) where
   show (FalsePositive suberrors) = "FP: " ++ foldl (\acc suberror -> acc ++ show suberror ++ ", ") "" (Set.toList suberrors)
   show (FalseNegative suberrors) = "FN: " ++ foldl (\acc suberror -> acc ++ show suberror ++ ", ") "" (Set.toList suberrors)
