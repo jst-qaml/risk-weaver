@@ -396,3 +396,39 @@ readCocoMap cocoFile cocoResultFile =
       coco <- wait coco'
       cocoResult <- wait cocoResult'
       return $ toCocoMap coco cocoResult cocoFile cocoResultFile
+
+resampleCocoMapWithImageIds :: CocoMap -> [ImageId] -> (Coco, [CocoResult])
+resampleCocoMapWithImageIds cocoMap imageIds =
+  let zipedImageIds = zip [1 ..] imageIds
+      newImageIds = (ImageId . fst) <$> zipedImageIds
+      imageIdsMap = Map.fromList zipedImageIds
+      cocoImages' =
+        map
+          ( \imageId ->
+              let orgImageId = imageIdsMap Map.! (unImageId imageId)
+                  img = (cocoMapCocoImage cocoMap) Map.! orgImageId
+               in img {cocoImageId = imageId}
+          )
+          newImageIds
+      cocoAnnotations' =
+        let annotations' = concat $ flip map newImageIds $ \imageId ->
+              let orgImageId = imageIdsMap Map.! (unImageId imageId)
+                  annotations = Map.findWithDefault [] orgImageId (cocoMapCocoAnnotation cocoMap)
+                  newAnnotations = map (\annotation -> annotation {cocoAnnotationImageId = imageId}) annotations
+               in newAnnotations
+            zippedAnnotations = zip [1 ..] annotations'
+            alignedAnnotations = map (\(newId, annotation) -> annotation {cocoAnnotationId = newId}) zippedAnnotations
+         in alignedAnnotations
+      newCoco =
+        (cocoMapCoco cocoMap)
+          { cocoImages = cocoImages',
+            cocoAnnotations = cocoAnnotations'
+          }
+      newCocoResult = concat $ flip map newImageIds $ \imageId ->
+        let orgImageId = imageIdsMap Map.! (unImageId imageId)
+            cocoResult = Map.findWithDefault [] orgImageId (cocoMapCocoResult cocoMap)
+            newCocoResult' = map (\cocoResult' -> cocoResult' {cocoResultImageId = imageId}) cocoResult
+         in newCocoResult'
+   in (newCoco, newCocoResult)
+
+

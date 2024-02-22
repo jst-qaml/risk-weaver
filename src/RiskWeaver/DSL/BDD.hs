@@ -15,8 +15,6 @@ module RiskWeaver.DSL.BDD where
 
 import Control.Monad.Trans.Reader (ReaderT, ask, runReader)
 import Control.Parallel.Strategies
-import Data.List qualified as List
-import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -129,15 +127,6 @@ instance BoundingBox BoundingBoxGT where
   isBackGroundD :: ClassD BoundingBoxGT -> Bool
   isBackGroundD Background = True
   isBackGroundD _ = False
-  detectD :: Env BoundingBoxGT -> Detection BoundingBoxGT -> Maybe BoundingBoxGT
-  detectD env dt =
-    let gts = groundTruth env
-        gts'' = filter (\gt -> classD @BoundingBoxGT dt == classG @BoundingBoxGT gt) $ Vector.toList gts
-        -- Get max IOU detection with ioUThresh
-        gts''' = filter (\(iou', _) -> iou' > ioUThresh env) $ map (\gt -> (ioU gt dt, gt)) gts''
-     in case gts''' of
-          [] -> Nothing
-          gts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts_
   toErrorType = riskType
 
   sizeG v = v.w * v.h
@@ -162,16 +151,6 @@ instance BoundingBox BoundingBoxGT where
             * (min (g.y + g.h) (d.y + d.h) - max g.y d.y)
      in intersection / (d.w * d.h)
   {-# INLINEABLE ioD #-}
-  detectG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
-  detectG env gt =
-    let dts = detection env
-        dts' = filter (\dt -> scoreD @BoundingBoxGT dt > confidenceScoreThresh env) $ Vector.toList dts
-        dts'' = filter (\dt -> classD @BoundingBoxGT dt == classG @BoundingBoxGT gt) dts'
-        -- Get max IOU detection with ioUThresh
-        dts''' = filter (\(iou', _) -> iou' > ioUThresh env) $ map (\dt -> (ioU gt dt, dt)) dts''
-     in case dts''' of
-          [] -> Nothing
-          dts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts_
 
   isInIeterestAreaD :: InterestArea BoundingBoxGT -> Detection BoundingBoxGT -> Bool
   isInIeterestAreaD polygon dt = pointInPolygon (Polygon polygon) (Point (dt.x, dt.y))
@@ -206,22 +185,6 @@ data BddRisk = BddRisk
     riskDt :: Maybe (Detection BoundingBoxGT)
   }
   deriving (Show, Ord, Eq, Generic, NFData)
-
-detectMaxIouG :: Env BoundingBoxGT -> BoundingBoxGT -> Maybe (Detection BoundingBoxGT)
-detectMaxIouG env gt =
-  let dts = detection env
-      dts' = map (\dt -> (ioU gt dt, dt)) $ Vector.toList dts
-   in case dts' of
-        [] -> Nothing
-        dts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts_
-
-detectMaxIouD :: Env BoundingBoxGT -> (Detection BoundingBoxGT) -> Maybe BoundingBoxGT
-detectMaxIouD env dt =
-  let gts = groundTruth env
-      gts' = map (\gt -> (ioU gt dt, gt)) $ Vector.toList gts
-   in case gts' of
-        [] -> Nothing
-        gts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts_
 
 riskForGroundTruth :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [BddRisk]
 riskForGroundTruth = do
@@ -391,9 +354,6 @@ instance World BddContext BoundingBoxGT where
       risks = concat $ flip map (cocoMapImageIds bddContextDataset) $ \imageId' -> map getKeyValue (runReader riskForDetection (contextToEnv context imageId'))
       getKeyValue :: BddRisk -> ((Class, Class), BddRisk)
       getKeyValue bddRisk = ((maybe Background classD bddRisk.riskDt, maybe Background classG bddRisk.riskGt), bddRisk)
-
-sortAndGroup :: (Ord k) => [(k, v)] -> Map k [v]
-sortAndGroup assocs = Map.fromListWith (++) [(k, [v]) | (k, v) <- assocs]
 
 runRisk ::
   BddContext -> [(ImageId, Double)]

@@ -13,9 +13,11 @@ import Control.Monad.Trans.Reader (ReaderT, ask)
 import Data.Kind (Type)
 import Data.Map (Map)
 import Data.Vector (Vector)
+import Data.Vector qualified as Vector
+import Data.List qualified as List
 
 -- | Bounding box type class of ground truth
-class BoundingBox a where
+class (Eq (ClassG a)) => BoundingBox a where
   -- | Detection type
   data Detection a :: Type
 
@@ -102,6 +104,14 @@ class BoundingBox a where
 
   -- | Detect the ground truth of the detection
   detectD :: Env a -> Detection a -> Maybe a
+  detectD env dt =
+    let gts = groundTruth env
+        gts'' = filter (\gt -> classD @a dt == classG @a gt) $ Vector.toList gts
+        -- Get max IOU detection with ioUThresh
+        gts''' = filter (\(iou', _) -> iou' > ioUThresh env) $ map (\gt -> (ioU gt dt, gt)) gts''
+     in case gts''' of
+          [] -> Nothing
+          gts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts_
 
   -- | Get error type from risk
   toErrorType :: Risk a -> ErrorType a
@@ -129,6 +139,15 @@ class BoundingBox a where
 
   -- | Detect the detection of the ground truth
   detectG :: Env a -> a -> Maybe (Detection a)
+  detectG env gt =
+    let dts = detection env
+        dts' = filter (\dt -> scoreD @a dt > confidenceScoreThresh env) $ Vector.toList dts
+        dts'' = filter (\dt -> classD @a dt == classG @a gt) dts'
+        -- Get max IOU detection with ioUThresh
+        dts''' = filter (\(iou', _) -> iou' > ioUThresh env) $ map (\dt -> (ioU gt dt, dt)) dts''
+     in case dts''' of
+          [] -> Nothing
+          dts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts_
 
   -- | True if the detection is in the interest area
   isInIeterestAreaD :: InterestArea a -> Detection a -> Bool
@@ -187,3 +206,20 @@ loopD add init' fn = do
   env <- ask
   foldl add init' <$> mapM fn (detection @a env)
 {-# INLINEABLE loopD #-}
+
+detectMaxIouG :: BoundingBox a => Env a -> a -> Maybe (Detection a)
+detectMaxIouG env gt =
+  let dts = detection env
+      dts' = map (\dt -> (ioU gt dt, dt)) $ Vector.toList dts
+   in case dts' of
+        [] -> Nothing
+        dts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) dts_
+
+detectMaxIouD :: BoundingBox a => Env a -> (Detection a) -> Maybe a
+detectMaxIouD env dt =
+  let gts = groundTruth env
+      gts' = map (\gt -> (ioU gt dt, gt)) $ Vector.toList gts
+   in case gts' of
+        [] -> Nothing
+        gts_ -> Just $ snd $ List.maximumBy (\(iou1, _) (iou2, _) -> compare iou1 iou2) gts_
+

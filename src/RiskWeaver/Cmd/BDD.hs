@@ -20,17 +20,10 @@ import RiskWeaver.DSL.BDD qualified as BDD
 import RiskWeaver.DSL.Core qualified as Core
 import RiskWeaver.Display (putImage)
 import RiskWeaver.Draw
+import RiskWeaver.Metric qualified as M
 import RiskWeaver.Format.Coco
 import System.FilePath ((</>))
 import Text.Printf
-
-average :: forall a f. (Num a, Foldable f, Fractional a) => f a -> a
-average xs
-  | null xs = 0
-  | otherwise =
-      uncurry (/)
-        . foldl (\(!total, !count) x -> (total + x, count + 1)) (0, 0)
-        $ xs
 
 toBddContext :: CocoMap -> Maybe Double -> Maybe Double -> BDD.BddContext
 toBddContext cocoMap iouThreshold scoreThresh =
@@ -69,40 +62,6 @@ showRiskWithError cocoMap iouThreshold scoreThresh = do
     let cocoImage = (cocoMapCocoImage cocoMap) Map.! imageId
     forM_ risks' $ \bddRisk -> do
       putStrLn $ printf "%-12d %-12s %.3f %-12s" (unImageId imageId) (T.unpack (cocoImageFileName cocoImage)) bddRisk.risk (show bddRisk.riskType)
-
-resampleCocoMapWithImageIds :: CocoMap -> [ImageId] -> (Coco, [CocoResult])
-resampleCocoMapWithImageIds cocoMap imageIds =
-  let zipedImageIds = zip [1 ..] imageIds
-      newImageIds = (ImageId . fst) <$> zipedImageIds
-      imageIdsMap = Map.fromList zipedImageIds
-      cocoImages' =
-        map
-          ( \imageId ->
-              let orgImageId = imageIdsMap Map.! (unImageId imageId)
-                  img = (cocoMapCocoImage cocoMap) Map.! orgImageId
-               in img {cocoImageId = imageId}
-          )
-          newImageIds
-      cocoAnnotations' =
-        let annotations' = concat $ flip map newImageIds $ \imageId ->
-              let orgImageId = imageIdsMap Map.! (unImageId imageId)
-                  annotations = Map.findWithDefault [] orgImageId (cocoMapCocoAnnotation cocoMap)
-                  newAnnotations = map (\annotation -> annotation {cocoAnnotationImageId = imageId}) annotations
-               in newAnnotations
-            zippedAnnotations = zip [1 ..] annotations'
-            alignedAnnotations = map (\(newId, annotation) -> annotation {cocoAnnotationId = newId}) zippedAnnotations
-         in alignedAnnotations
-      newCoco =
-        (cocoMapCoco cocoMap)
-          { cocoImages = cocoImages',
-            cocoAnnotations = cocoAnnotations'
-          }
-      newCocoResult = concat $ flip map newImageIds $ \imageId ->
-        let orgImageId = imageIdsMap Map.! (unImageId imageId)
-            cocoResult = Map.findWithDefault [] orgImageId (cocoMapCocoResult cocoMap)
-            newCocoResult' = map (\cocoResult' -> cocoResult' {cocoResultImageId = imageId}) cocoResult
-         in newCocoResult'
-   in (newCoco, newCocoResult)
 
 generateRiskWeightedDataset :: CocoMap -> FilePath -> Maybe Double -> Maybe Double -> IO ()
 generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThresh = do
@@ -272,7 +231,7 @@ evaluate cocoMap iouThreshold scoreThresh = do
       percentile_90 = take (num_of_images * 10 `div` 100) sorted_risks
   putStrLn $ printf "%-12s, %.2f" "total" (sum $ map snd risks)
   putStrLn $ printf "%-12s, %.2f" "maximum" max_risks
-  putStrLn $ printf "%-12s, %.2f" "average" (average $ map snd risks)
+  putStrLn $ printf "%-12s, %.2f" "average" (M.average $ map snd risks)
   putStrLn $ printf "%-12s, %.2f" "minimum" (minimum $ map snd risks)
   putStrLn $ printf "%-12s, %.2f" "90percentile" $ head $ reverse percentile_90
   putStrLn $ printf "%-12s, %d" "num_of_images" num_of_images

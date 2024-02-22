@@ -8,6 +8,7 @@ module RiskWeaver.Metric where
 
 import Control.Parallel.Strategies
 import Data.List (maximumBy, sortBy)
+import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import GHC.Generics
@@ -167,60 +168,13 @@ mF1 cocoMap@CocoMap {..} iouThresh scoreThresh =
       f1s' = f1s `using` parList rdeepseq
    in (sum f1s' / fromIntegral (length f1s'), zip categoryIds f1s')
 
--- data ConfusionMatrix a = ConfusionMatrix
---   { confusionMatrixRecall :: Map.Map (Gt CategoryId) (Map.Map (Dt CategoryId) a),
---     confusionMatrixPrecision :: Map.Map (Dt CategoryId) (Map.Map (Gt CategoryId) a),
---     confusionMatrixCategoryIds :: [CategoryId]
---   }
---   deriving (Show, Eq, Ord)
+sortAndGroup :: (Ord k) => [(k, v)] -> Map k [v]
+sortAndGroup assocs = Map.fromListWith (++) [(k, [v]) | (k, v) <- assocs]
 
--- instance Num a => Semigroup (ConfusionMatrix a) where
---   ConfusionMatrix recall1 precision1 categoryIds1 <> ConfusionMatrix recall2 precision2 categoryIds2 =
---     ConfusionMatrix
---       { confusionMatrixRecall = recall,
---         confusionMatrixPrecision = precision,
---         confusionMatrixCategoryIds = categoryIds
---       }
---     where
---       recall = Map.unionWith (Map.unionWith (+)) recall1 recall2
---       precision = Map.unionWith (Map.unionWith (+)) precision1 precision2
---       categoryIds = categoryIds1
-
--- confusionMatrix :: Num a => CocoMap -> IOU -> Score -> ConfusionMatrix a
--- confusionMatrix cocoMap@CocoMap {..} iouThresh scoreThresh =
---   foldl (<>) (ConfusionMatrix Map.empty Map.empty cocoMapCategoryIds) $
---     map (confusionMatrixForImage cocoMap iouThresh scoreThresh) cocoMapImageIds
-
--- confusionMatrixForImage :: Num a => CocoMap -> IOU -> Score -> ImageId -> ConfusionMatrix a
--- confusionMatrixForImage cocoMap@CocoMap {..} iouThresh scoreThresh imageId =
---   ConfusionMatrix
---     { confusionMatrixRecall = recall,
---       confusionMatrixPrecision = precision,
---       confusionMatrixCategoryIds = cocoMapCategoryIds
---     }
---   where
---     gts = fromMaybe [] $ Map.lookup imageId cocoMapCocoAnnotation
---     dts = fromMaybe [] $ Map.lookup imageId cocoMapCocoResult
---     for = flip map
---     recall = foldl (Map.unionWith (Map.unionWith (+))) Map.empty $
---       for gts $ \gt ->
---         let iousWithDt = sortBy (\(iou0, _) (iou1, _) -> compare iou1 iou0) $ flip map dts $ \dt -> (iou (cocoAnnotationBbox gt) (cocoResultBbox dt), dt)
---             filteredDt = filter (\(iou, dt) -> iou >= iouThresh && cocoResultScore dt >= scoreThresh) iousWithDt
---             categoryFilter = filter (\(iou, dt) -> cocoAnnotationCategory gt == cocoResultCategory dt) filteredDt
---          in case categoryFilter of
---               [] ->
---                 case filteredDt of
---                   [] -> Map.singleton (Gt $ cocoAnnotationCategory gt) $ Map.singleton DtBackground 1
---                   (iou, dt) : _ -> Map.singleton (Gt $ cocoAnnotationCategory gt) $ Map.singleton (Dt $ cocoResultCategory dt) 1
---               (iou, dt) : _ -> Map.singleton (Gt $ cocoAnnotationCategory gt) $ Map.singleton (Dt $ cocoResultCategory dt) 1
---     precision = foldl (Map.unionWith (Map.unionWith (+))) Map.empty $
---       for dts $ \dt ->
---         let iousWithGt = sortBy (\(iou0, _) (iou1, _) -> compare iou1 iou0) $ flip map gts $ \gt -> (iou (cocoAnnotationBbox gt) (cocoResultBbox dt), gt)
---             filteredGt = filter (\(iou, gt) -> iou >= iouThresh) iousWithGt
---             categoryFilter = filter (\(iou, gt) -> cocoAnnotationCategory gt == cocoResultCategory dt) filteredGt
---          in case categoryFilter of
---               [] ->
---                 case filteredGt of
---                   [] -> Map.singleton (Dt $ cocoResultCategory dt) $ Map.singleton GtBackground 1
---                   (iou, gt) : _ -> Map.singleton (Dt $ cocoResultCategory dt) $ Map.singleton (Gt $ cocoAnnotationCategory gt) 1
---               (iou, gt) : _ -> Map.singleton (Dt $ cocoResultCategory dt) $ Map.singleton (Gt $ cocoAnnotationCategory gt) 1
+average :: forall a f. (Num a, Foldable f, Fractional a) => f a -> a
+average xs
+  | null xs = 0
+  | otherwise =
+      uncurry (/)
+        . foldl (\(!total, !count) x -> (total + x, count + 1)) (0, 0)
+        $ xs
