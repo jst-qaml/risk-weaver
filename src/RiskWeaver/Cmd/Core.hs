@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module RiskWeaver.Cmd.Core where
 
@@ -11,6 +12,8 @@ import Data.Text qualified as T
 import Options.Applicative
 import RiskWeaver.Display
 import RiskWeaver.Format.Coco
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 
 data CocoCommand
   = ListImages {cocoFile :: FilePath}
@@ -55,6 +58,7 @@ data CocoCommand
         scoreThreshold :: Maybe Double
       }
   | BashCompletion
+  | GenerateTemplate
   deriving (Show, Eq)
 
 data RiskCommands = RiskCommands
@@ -120,6 +124,31 @@ bashCompletion = do
   let file = $(embedFile "bash_completion.d/risk-weaver-exe")
   BS.putStr file
 
+-- | Generate template codes to define own risk environment from BDD.
+generateTemplate :: IO ()
+generateTemplate = do
+  -- Read from bash_completion.d/risk-weaver-exe and write to stdout
+  -- Inline the file content by tepmlate haskell
+  let orgDslFile = $(embedFile "src/RiskWeaver/DSL/BDD.hs")
+      orgCmdFile = $(embedFile "src/RiskWeaver/Cmd/BDD.hs")
+      mainLine = "main = baseMain bddCommand\n"
+      mergedFile = orgDslFile <> orgCmdFile <> mainLine
+      extraceLangExtFromMergedFile = -- Extract all '{-# LANGUAGE .. #-}' lines
+        let langExts = T.unlines $ filter (T.isPrefixOf "{-# LANGUAGE") $ T.lines $ T.decodeUtf8 mergedFile
+         in T.encodeUtf8 langExts
+      extractImportLines = -- Extract all 'import ..' lines
+        let importLines = T.unlines $ filter (T.isPrefixOf "import") $ T.lines $ T.decodeUtf8 mergedFile
+         in T.encodeUtf8 importLines
+      removeModuleAndLangExtAndImport = -- Remove module and language extension and import lines
+        let removedModule = T.unlines $ filter (not . T.isPrefixOf "module") $ T.lines $ T.decodeUtf8 mergedFile
+            removedLangExt = T.unlines $ filter (not . T.isPrefixOf "{-# LANGUAGE") $ T.lines removedModule
+            removedImport = T.unlines $ filter (not . T.isPrefixOf "import") $ T.lines removedLangExt
+         in T.encodeUtf8 removedImport
+      output = -- Concat all of them(extraceLangExtFromMergedFile, extractImportLines, removeModuleAndLangExtAndImport)
+        extraceLangExtFromMergedFile <> "\n" <> extractImportLines <> "\n" <> removeModuleAndLangExtAndImport
+  BS.putStr output
+
+
 opts :: Parser CocoCommand
 opts =
   subparser
@@ -134,6 +163,7 @@ opts =
         <> command "show-risk-with-error" (info (ShowRiskWithError <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "show risk with error"))
         <> command "generate-risk-weighted-dataset" (info (GenerateRiskWeightedDataset <$> argument str (metavar "FILE") <*> argument str (metavar "RESULT_FILE") <*> argument str (metavar "OUTPUT_FILE") <*> optional (option auto (long "iou-threshold" <> short 'i' <> help "iou threshold")) <*> optional (option auto (long "score-threshold" <> short 's' <> help "score threshold"))) (progDesc "generate risk weighted dataset"))
         <> command "bash-completion" (info (pure BashCompletion) (progDesc "bash completion"))
+        <> command "generate-template" (info (pure GenerateTemplate) (progDesc "generate template"))
     )
 
 baseMain :: RiskCommands -> IO ()
@@ -172,3 +202,4 @@ baseMain hook = do
     GenerateRiskWeightedDataset cocoFile cocoResultFile cocoOutputFile iouThreshold scoreThreshold -> do
       cocoMap <- readCocoMap cocoFile cocoResultFile
       hook.generateRiskWeightedDataset cocoMap cocoOutputFile iouThreshold scoreThreshold
+    GenerateTemplate -> generateTemplate
