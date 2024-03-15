@@ -64,8 +64,7 @@ You can reduce the risk of object detection by using the following steps:
 
 You can define the risk in the custom-risk-weaver.hs file. 
 The risk is defined in the riskForGroundTruth and riskForDetection functions to measure recall and precision.
-The risk is defined as a list of Risk objects. 
-You can define the Risk object as you like.
+Both functions return a list of Risk objects.
 
 The default risk definition is as follows:
 ```haskell
@@ -103,13 +102,15 @@ The default risk definition is as follows:
             return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = 0.0001, riskType = TruePositive}]
           -- If the detected object is not found, it returns false negative.
           Nothing -> do
+            -- Find the detected object with the maximum IoU.
             case detectMaxIouG env gt of
+              -- If the detected object is not found, it returns false negative and a high risk value(30).
               Nothing -> return [BddRisk {riskGt = Just gt, riskDt = Nothing, risk = riskBias * 30, riskType = FalseNegative []}]
               Just (dt :: Detection a) -> do
-                case ( classD @BoundingBoxGT dt == classG @BoundingBoxGT gt,
-                       scoreD @BoundingBoxGT dt > confidenceScoreThresh env,
-                       ioU gt dt > ioUThresh env,
-                       ioG gt dt > ioUThresh env
+                case ( classD @BoundingBoxGT dt == classG @BoundingBoxGT gt, -- ^ Class match between ground truth and detection
+                       scoreD @BoundingBoxGT dt > confidenceScoreThresh env, -- ^ If the confidence score of detection is higher than the threshold, it returns true.
+                       ioU gt dt > ioUThresh env, -- ^ If the IoU of detection is higher than the threshold, it returns true. IoU is Intersection over Union.
+                       ioG gt dt > ioUThresh env  -- ^ If the IoG of ground truth is higher than the threshold, it returns true. IoG is Intersection over Ground truth.
                      ) of
                   (False, False, False, True) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 5.1, riskType = FalseNegative [MissClass, LowScore, Occulusion]}]
                   (False, False, True, _) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 5, riskType = FalseNegative [MissClass, LowScore]}]
