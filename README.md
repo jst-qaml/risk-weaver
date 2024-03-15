@@ -52,9 +52,92 @@ Then use "custom-risk-weaver" command instead of risk-weaver-exe.
 
 ## Usage
 
-### Analyzing the Risk of Object Detection
+You can reduce the risk of object detection by using the following steps:
 
-1. Generate a coco result output for an analized model and test dataset.
+1. Define the risk.
+2. Run the model and output the result in COCO format.
+3. Analyze the risk and visualize it, and if necessary, redefine the risk.
+4. Fine-tune the model to reduce the risk.
+5. Analyze the risk and visualize it.
+
+### 1. Define the risk
+
+You can define the risk in the custom-risk-weaver.hs file. 
+The risk is defined in the riskForGroundTruth and riskForDetection functions to measure recall and precision.
+The risk is defined as a list of Risk objects. 
+You can define the Risk object as you like.
+
+The default risk definition is as follows:
+```haskell
+  -- | Error type
+  data ErrorType _
+    = FalsePositive (Set SubErrorType)
+    | FalseNegative (Set SubErrorType)
+    | TruePositive
+    | TrueNegative
+    deriving (Ord, Eq, Generic, NFData)
+
+  -- | The definition of risk
+  data Risk _ = BddRisk
+    { riskType :: ErrorType BoundingBoxGT, -- ^ Error type of the risk like FalsePositive, FalseNegative, TruePositive, TrueNegative
+      risk :: Double, -- ^ Risk value for each object
+      riskGt :: Maybe BoundingBoxGT, -- ^ The ground truth object of the risk value
+      riskDt :: Maybe (Detection BoundingBoxGT) -- ^ The detected object of the risk value
+    } deriving (Show, Ord, Eq, Generic, NFData)
+
+  -- | Risk for ground truth: It is used to measure recall.
+  riskForGroundTruth :: forall m. (Monad m) => ReaderT (Env BoundingBoxGT) m [Risk BoundingBoxGT]
+  riskForGroundTruth = do
+    env <- ask
+    -- loopG is a function to iterate over all ground truth objects.
+    loopG (++) [] $ \(gt :: a) ->
+      -- whenInterestAreaG is a function to check if the ground truth object is in the interest area.
+      whenInterestAreaG (envUseInterestArea env) gt $ do
+        -- riskBias is a factor to adjust the risk value. In this case,
+        -- the risk value is adjusted by 10 when the object is a pedestrian.
+        let riskBias = if classG @BoundingBoxGT gt == Pedestrian then 10 else 1
+        -- detectG finds the detected object corresponding to the ground truth object.
+        case detectG env gt of
+          -- If the detected object is found, it returns true positive and a low risk value(0.0001).
+          Just (dt :: Detection a) ->
+            return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = 0.0001, riskType = TruePositive}]
+          -- If the detected object is not found, it returns false negative.
+          Nothing -> do
+            case detectMaxIouG env gt of
+              Nothing -> return [BddRisk {riskGt = Just gt, riskDt = Nothing, risk = riskBias * 30, riskType = FalseNegative []}]
+              Just (dt :: Detection a) -> do
+                case ( classD @BoundingBoxGT dt == classG @BoundingBoxGT gt,
+                       scoreD @BoundingBoxGT dt > confidenceScoreThresh env,
+                       ioU gt dt > ioUThresh env,
+                       ioG gt dt > ioUThresh env
+                     ) of
+                  (False, False, False, True) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 5.1, riskType = FalseNegative [MissClass, LowScore, Occulusion]}]
+                  (False, False, True, _) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 5, riskType = FalseNegative [MissClass, LowScore]}]
+                  (False, True, False, True) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 5.1, riskType = FalseNegative [MissClass, Occulusion]}]
+                  (False, True, True, _) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 2, riskType = FalseNegative [MissClass]}]
+                  (True, False, False, True) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 5.1, riskType = FalseNegative [LowScore, Occulusion]}]
+                  (True, False, True, _) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 5, riskType = FalseNegative [LowScore]}]
+                  (True, True, False, True) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 0.1, riskType = FalseNegative [Occulusion]}]
+                  (True, True, True, _) -> return [BddRisk {riskGt = Just gt, riskDt = Just dt, risk = riskBias * 0.0001, riskType = TruePositive}]
+                  (_, _, False, False) -> return [BddRisk {riskGt = Just gt, riskDt = Nothing, risk = riskBias * 30, riskType = FalseNegative []}]
+```
+
+
+### 2. Run the model and output the result in COCO format
+
+Generate a coco result output for an analized model and test dataset.
 At first you need to add the following code to generate the output.
 ```python
+
 ```
+
+
+### 3. Analyze the risk and visualize it, and if necessary, redefine the risk
+
+### 4. Fine-tune the model to reduce the risk
+
+### 5. Analyze the risk and visualize it
+
+```
+
+
