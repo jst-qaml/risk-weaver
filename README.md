@@ -47,6 +47,28 @@ risk-weaver-exe generate-template > custom-risk-weaver.hs
 ```bash
 # Build the updated code.
 cabal exec ghc custom-risk-weaver.hs
+# It outputs help message without any arguments.
+Usage: risk-weaver-exe COMMAND
+
+  coco command line tool
+
+Available options:
+  -h,--help                Show this help text
+
+Available commands:
+  list-images              list all images of coco file
+  list-categories          list all categories of coco file
+  list-annotations         list all annotations of coco file
+  list-coco-result         list all coco result
+  show-image               show image by sixel
+  show-detection-image     show detection image by sixel
+  evaluate                 evaluate coco result
+  show-risk                show risk
+  show-risk-with-error     show risk with error
+  generate-risk-weighted-dataset
+                           generate risk weighted dataset
+  bash-completion          bash completion
+  generate-template        generate template
 ```
 Then use "custom-risk-weaver" command instead of risk-weaver-exe.
 
@@ -127,13 +149,106 @@ The default risk definition is as follows:
 ### 2. Run the model and output the result in COCO format
 
 Generate a coco result output for an analized model and test dataset.
-At first you need to add the following code to generate the output.
-```python
+At first you need to add the following codes to generate the output.
+Next it outputs the result in COCO format.
 
+
+```python
+    coco_results = []
+    model.eval()
+    for images, targets in data_loader:
+        images = list(img.to(device) for img in images)
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        model_time = time.time()
+        outputs = model(images)
+        for (output,image,target) in zip(outputs,images,targets):
+            for box, label, score in zip(output["boxes"],output["labels"],output["scores"]):
+                [x0,y0,x1,y1] = box.tolist()
+                coco_results.append({
+                    "image_id": int(target["image_id"]),
+                    "category_id": int(label),
+                    "bbox": [x0,y0,x1-x0,y1-y0],
+                    "score": float(score)
+                })
+    with open(output_json, "w") as outfile:
+        outfile.write(json.dumps(coco_results, indent=4))
+```
+
+### 3. Analyze the risk and visualize it, and if necessary, redefine the risk
+
+"risk-weaver-exe evaluate" command evaluates the risk and outputs the result in the following format.
+It outputs AP, risk values, confusion matrix, and F1 scores.
+AP and F1 output the average value of each category. mAP and mF1 output the average value of all categories.
+
+In case of confusion matrix of recall, row is ground truth, column is prediction.
+For example, when groundtruth's pedestrian is not detected and it is false negative, the value of the confusion matrix is 822.
+When groundtruth's pedestrian is detected as pedestrian, the value of the confusion matrix is 4070.
+
+In case of confusion matrix of precision, row is prediction, column is ground truth.
+For example, when not existing pedestrian is detected as pedestrian and it is false positive, the value of the confusion matrix is 293.
+When pedestrian is detected as pedestrian, the value of the confusion matrix is 3810.
+
+```bash
+$ risk-weaver-exe evaluate -s 0.4 -i 0.5 "coco annotation json file of ground truth" "coco result json file"
+#CocoFile    , "coco annotation json file of ground truth"
+#CocoResultFile, "coco result json file"
+#Category   , AP
+pedestrian  , 0.386
+rider       , 0.274
+car         , 0.731
+truck       , 0.524
+bus         , 0.561
+train       , 0.000
+motorcycle  , 0.261
+bicycle     , 0.369
+mAP         , 0.388
+
+#Risk
+total       , 511706.25
+maximum     , 3158.00
+average     , 148.28
+minimum     , 0.00
+90percentile, 415.10
+num_of_images, 3451
+
+#confusion matrix of recall: row is ground truth, column is prediction.
+#GT \ DT    ,Backgroud   ,pedestrian  ,rider       ,car         ,truck       ,bus         ,train       ,motorcycle  ,bicycle     ,
+pedestrian  ,822         ,4070        ,17          ,875         ,68          ,12          ,0           ,18          ,99          ,
+rider       ,31          ,75          ,89          ,64          ,2           ,0           ,0           ,12          ,14          ,
+car         ,1757        ,291         ,15          ,35683       ,271         ,64          ,0           ,36          ,134         ,
+truck       ,149         ,21          ,1           ,360         ,939         ,30          ,0           ,2           ,8           ,
+bus         ,48          ,14          ,2           ,172         ,59          ,380         ,0           ,0           ,4           ,
+train       ,2           ,2           ,0           ,3           ,0           ,0           ,0           ,0           ,0           ,
+motorcycle  ,20          ,14          ,5           ,70          ,7           ,0           ,0           ,53          ,12          ,
+bicycle     ,50          ,54          ,7           ,109         ,4           ,1           ,0           ,5           ,205         ,
+
+#confusion matrix of precision: row is prediction, column is ground truth.
+#DT \ GT    ,Backgroud   ,pedestrian  ,rider       ,car         ,truck       ,bus         ,train       ,motorcycle  ,bicycle     ,
+pedestrian  ,293         ,3810        ,38          ,100         ,11          ,1           ,2           ,2           ,12          ,
+rider       ,0           ,7           ,102         ,4           ,0           ,0           ,0           ,1           ,0           ,
+car         ,963         ,50          ,13          ,35256       ,245         ,77          ,0           ,12          ,16          ,
+truck       ,42          ,10          ,0           ,210         ,1042        ,36          ,0           ,2           ,2           ,
+bus         ,3           ,0           ,0           ,31          ,26          ,446         ,0           ,0           ,0           ,
+train       ,0           ,0           ,0           ,0           ,0           ,0           ,0           ,0           ,0           ,
+motorcycle  ,0           ,0           ,1           ,3           ,1           ,0           ,0           ,65          ,2           ,
+bicycle     ,5           ,8           ,0           ,13          ,1           ,0           ,0           ,8           ,235         ,
+
+#F1 Scores
+pedestrian  , 0.432
+rider       , 0.277
+car         , 0.739
+truck       , 0.585
+bus         , 0.612
+train       , 0.000
+motorcycle  , 0.299
+bicycle     , 0.364
+mF1         , 0.413
 ```
 
 
-### 3. Analyze the risk and visualize it, and if necessary, redefine the risk
+
 
 ### 4. Fine-tune the model to reduce the risk
 
