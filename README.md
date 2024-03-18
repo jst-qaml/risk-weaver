@@ -315,10 +315,6 @@ To debug the definition of risk, you can use the following commands.
 show-risk command outputs the risk value of each image.
 show-risk-with-error command outputs the risk value and error type of each image.
 
-show-detection-image command displays the detection image with annotations.
-The left side of the image is the annotations of the ground truth, and the right side is the detection's one.
-The color of the bounding box is red when it is false negative or false positive, and green when it is true positive.
-
 ```bash
 $ risk-weaver-exe show-risk -s 0.4 -i 0.5  "coco annotation json file of ground truth" "coco result json file"|head
 #ImageId     Filename     Risk
@@ -340,7 +336,13 @@ $ risk-weaver-exe show-risk-with-error -s 0.4 -i 0.5  "coco annotation json file
 45688        b2daf29d-6198754f.jpg 0.000 TP
 45688        b2daf29d-6198754f.jpg 5.000 FN: LowScore,
 45688        b2daf29d-6198754f.jpg 0.000 TP
+```
 
+show-detection-image command displays the detection image with annotations.
+The left side of the image is the annotations of the ground truth, and the right side is the detection's one.
+The color of the bounding box is red when it is false negative or false positive, and green when it is true positive.
+
+```bash
 $ risk-weaver-exe show-detection-image -s 0.4 -i 0.5 "coco annotation json file of ground truth" "coco result json file" b2daf29d-6198754f.jpg
 ```
 
