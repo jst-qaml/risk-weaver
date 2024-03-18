@@ -309,7 +309,14 @@ train       , 0.000
 motorcycle  , 0.253
 bicycle     , 0.362
 mF1         , 0.378
+```
 
+To debug the definition of risk, you can use the following commands.
+show-risk command outputs the risk value of each image.
+show-risk-with-error command outputs the risk value and error type of each image.
+show-detection-image command displays the detection image with annotations.
+
+```bash
 $ risk-weaver-exe show-risk -s 0.4 -i 0.5  "coco annotation json file of ground truth" "coco result json file"|head
 #ImageId     Filename     Risk
 45688        b2daf29d-6198754f.jpg 3158.004
@@ -332,8 +339,9 @@ $ risk-weaver-exe show-risk-with-error -s 0.4 -i 0.5  "coco annotation json file
 45688        b2daf29d-6198754f.jpg 0.000 TP
 
 $ risk-weaver-exe show-detection-image -s 0.4 -i 0.5 "coco annotation json file of ground truth" "coco result json file" b2daf29d-6198754f.jpg
-![Display a detection image with annotations](images/display.png)
 ```
+
+![Display a detection image with annotations](images/display.png)
 
 
 ### 4. Fine-tune the model to reduce the risk
