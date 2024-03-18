@@ -13,8 +13,6 @@ A Domain Specific Language for the Specification of Risk-oriented Object Detecti
 
 The formats of input/output data are based on [COCO](https://cocodataset.org/#format-data) and [COCO Results](https://cocodataset.org/#format-results).
 
-## Getting Started
-
 ## Installation
 
 1. Git clone the repository.
@@ -356,4 +354,8 @@ Fine-tune the model to reduce the risk with the risk weighted dataset, and outpu
 ### 5. Analyze the risk and visualize it
 
 Analyze the risk and visualize it as in step 3.
+
+## Documentation
+
+You can find the API documentation on hackage site: https://hackage.haskell.org/package/risk-weaver
 
