@@ -190,6 +190,15 @@ In case of confusion matrix of precision, row is prediction, column is ground tr
 For example, when not existing pedestrian is detected as pedestrian and it is false positive, the value of the confusion matrix is 293.
 When pedestrian is detected as pedestrian, the value of the confusion matrix is 3810.
 
+Next "risk-weaver-exe generate-risk-weighted-dataset" command generates a risk weighted dataset.
+It outputs the same format with the evaluate command, and it also outputs the risk weighted dataset in COCO format.
+
+In this example, the number of groundtruth's pedestrian not detecting as pedestrian becomes 5159. The value is 822 in the original dataset.
+The risk value changes from 511706.25 to 2357411.65. It is about 4 times larger than the original dataset.
+Because the risk definition of groundtruth's pedestrian is 30 times larger than the other categories.
+
+If the risk value does not increase as expected, redefine the risk definition.
+
 ```bash
 $ risk-weaver-exe evaluate -s 0.4 -i 0.5 "coco annotation json file of ground truth" "coco result json file"
 #CocoFile    , "coco annotation json file of ground truth"
@@ -245,15 +254,93 @@ train       , 0.000
 motorcycle  , 0.299
 bicycle     , 0.364
 mF1         , 0.413
+
+$ risk-weaver-exe generate-risk-weighted-dataset -s 0.4 -i 0.5 "coco annotation json file of ground truth" "coco result json file" "risk weighted dataset json file"
+#CocoFile    , "risk weighted dataset json file"
+#CocoResultFile, 
+#Category   , AP
+pedestrian  , 0.324
+rider       , 0.169
+car         , 0.700
+truck       , 0.514
+bus         , 0.549
+train       , 0.000
+motorcycle  , 0.236
+bicycle     , 0.330
+mAP         , 0.353
+
+#Risk
+total       , 2357411.65
+maximum     , 3158.00
+average     , 683.11
+minimum     , 2.00
+90percentile, 1562.00
+num_of_images, 3451
+
+#confusion matrix of recall: row is ground truth, column is prediction.
+#GT \ DT    ,Backgroud   ,pedestrian  ,rider       ,car         ,truck       ,bus         ,train       ,motorcycle  ,bicycle     ,
+pedestrian  ,5159        ,17968       ,77          ,3100        ,267         ,60          ,0           ,52          ,471         ,
+rider       ,122         ,267         ,150         ,97          ,5           ,0           ,0           ,15          ,64          ,
+car         ,2234        ,844         ,10          ,31117       ,267         ,107         ,0           ,27          ,284         ,
+truck       ,196         ,57          ,2           ,324         ,1115        ,57          ,0           ,0           ,35          ,
+bus         ,108         ,44          ,0           ,218         ,70          ,587         ,0           ,0           ,6           ,
+train       ,4           ,4           ,0           ,3           ,0           ,0           ,0           ,0           ,0           ,
+motorcycle  ,25          ,41          ,5           ,93          ,7           ,0           ,0           ,80          ,24          ,
+bicycle     ,154         ,165         ,18          ,215         ,28          ,4           ,0           ,20          ,495         ,
+
+#confusion matrix of precision: row is prediction, column is ground truth.
+#DT \ GT    ,Backgroud   ,pedestrian  ,rider       ,car         ,truck       ,bus         ,train       ,motorcycle  ,bicycle     ,
+pedestrian  ,1492        ,16118       ,146         ,480         ,54          ,14          ,8           ,5           ,38          ,
+rider       ,0           ,37          ,188         ,8           ,0           ,0           ,0           ,1           ,0           ,
+car         ,794         ,126         ,18          ,30889       ,282         ,101         ,0           ,4           ,43          ,
+truck       ,51          ,27          ,0           ,241         ,1261        ,56          ,0           ,1           ,19          ,
+bus         ,10          ,0           ,0           ,38          ,46          ,664         ,0           ,0           ,0           ,
+train       ,0           ,0           ,0           ,0           ,0           ,0           ,0           ,0           ,0           ,
+motorcycle  ,0           ,0           ,0           ,4           ,1           ,0           ,0           ,89          ,3           ,
+bicycle     ,14          ,33          ,0           ,19          ,3           ,0           ,0           ,27          ,526         ,
+
+#F1 Scores
+pedestrian  , 0.379
+rider       , 0.167
+car         , 0.713
+truck       , 0.552
+bus         , 0.595
+train       , 0.000
+motorcycle  , 0.253
+bicycle     , 0.362
+mF1         , 0.378
+
+$ risk-weaver-exe show-risk -s 0.4 -i 0.5  "coco annotation json file of ground truth" "coco result json file"|head
+#ImageId     Filename     Risk
+45688        b2daf29d-6198754f.jpg 3158.004
+45831        6b7feb1a-baf7d8be.jpg 2875.005
+47645        7d04cd7b-193c6f8f.jpg 2480.003
+46256        bcecdb4d-825f09d4.jpg 2401.104
+44798        685e0280-f68ac51a.jpg 2296.004
+47635        71884eef-6b34934b.jpg 2269.003
+
+$ risk-weaver-exe show-risk-with-error -s 0.4 -i 0.5  "coco annotation json file of ground truth" "coco result json file"|head
+#ImageId     Filename     Risk         ErrorType
+45688        b2daf29d-6198754f.jpg 1.000 FN: Occulusion,
+45688        b2daf29d-6198754f.jpg 0.000 TP
+45688        b2daf29d-6198754f.jpg 0.000 TP
+45688        b2daf29d-6198754f.jpg 0.000 TP
+45688        b2daf29d-6198754f.jpg 0.000 TP
+45688        b2daf29d-6198754f.jpg 0.000 TP
+45688        b2daf29d-6198754f.jpg 0.000 TP
+45688        b2daf29d-6198754f.jpg 5.000 FN: LowScore,
+45688        b2daf29d-6198754f.jpg 0.000 TP
+
+$ risk-weaver-exe show-detection-image -s 0.4 -i 0.5 "coco annotation json file of ground truth" "coco result json file" b2daf29d-6198754f.jpg
+![Display a detection image with annotations](images/display.png)
 ```
-
-
 
 
 ### 4. Fine-tune the model to reduce the risk
 
+Fine-tune the model to reduce the risk with the risk weighted dataset, and output the result in COCO format.
+
 ### 5. Analyze the risk and visualize it
 
-```
-
+Analyze the risk and visualize it as in step 3.
 
